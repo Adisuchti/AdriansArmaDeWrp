@@ -1,0 +1,48 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Arma 3 Tool generated
+scripts/_temp_unpack/
+scripts/extracted_models/
+scripts/mlod_models/
+scripts/converted_models/
+
+# Logs
+*.log
+scripts/*.txt
+
+# IDE
+.vscode/
+.idea/
+
+# C# build artifacts
+**/bin/
+**/obj/
+
+# Local configuration
+config.json
+
+# External executables and libraries
+*.exe
+*.dll
+scripts/P3D-Debinarizer-Arma-3/
+scripts/bis-file-formats/
+
+# Extracted data (huge auto-generated output)
+extracted_data/
+
+# Python
+__pycache__/
+*.pyc
+
+# 3d
+*.rtm
+*.paa
+*.p3d
+*.rvmat
+# .NET Build files
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+*.metadata.json
