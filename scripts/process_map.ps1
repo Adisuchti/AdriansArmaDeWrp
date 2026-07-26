@@ -78,10 +78,25 @@ $relevantPbos = $allPbos | Where-Object {
     $_.Name -imatch "rocks|structures|plants|buildings|roads|env|map|vegetation|clutter|houses|signs|props|cup|core|a3|ca"
 }
 
+$relevantPbosArray = @($relevantPbos)
+$totalPbos = $relevantPbosArray.Count
+$pboCounter = 0
+
+Write-Host "Found $totalPbos relevant PBOs to scan." -ForegroundColor Cyan
+
 if (-not (Test-Path $TempPboDir)) { New-Item -ItemType Directory -Path $TempPboDir -Force | Out-Null }
 
-foreach ($pbo in $relevantPbos) {
-    if ($neededModels.Count -eq 0) { break }
+foreach ($pbo in $relevantPbosArray) {
+    $pboCounter++
+    
+    if ($pboCounter % 10 -eq 0 -or $pboCounter -eq $totalPbos) {
+        Write-Host "  Scanning PBO [$pboCounter / $totalPbos]..." -ForegroundColor Gray
+    }
+
+    if ($neededModels.Count -eq 0) {
+        Write-Host "  All needed models found! Stopping scan early." -ForegroundColor Green
+        break 
+    }
     
     # Extract
     & $BankRevExe "-f" $TempPboDir $pbo.FullName "*.p3d" 2>$null | Out-Null

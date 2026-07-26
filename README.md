@@ -3,6 +3,10 @@
 
 This project provides a complete data pipeline to extract, convert, and visualize Arma 3 maps (WRP files) in a custom 3D web viewer. It extracts terrain heightmaps, surface masks, and all 3D object placements directly from the game's PBO files and renders them in the browser using Three.js.
 
+## Live Demo
+Check out a live interactive demo of the 3D map viewer showing the town of Elektro on the Chernarus map:  
+**[View Live Demo: Chernarus - Elektro](https://publictools.cinder9.com/3dViewer/?map=chernarus_summer_WRP&x=0.5425&y=0.7623&w=0.2112&h=0.1522)**
+
 ## Features
 - Parses proprietary .wrp (OPRW v25) map files to extract terrain and object data.
 - Automatically searches Arma 3 base game and !Workshop directories for required models.
