@@ -13,7 +13,7 @@ def convert_heightmap(base_dir, width, height):
     with open(bin_path, "rb") as f:
         floats = struct.unpack(f"<{width*height}f", f.read())
         
-    img = Image.new('L', (width, height))
+    img = Image.new('RGB', (width, height))
     pixels = img.load()
     
     min_h = min(floats)
@@ -22,8 +22,13 @@ def convert_heightmap(base_dir, width, height):
     idx = 0
     for y in range(height):
         for x in range(width):
-            scaled = int((floats[idx] - min_h) / (max_h - min_h) * 255)
-            pixels[x, y] = scaled
+            val = floats[idx]
+            norm = (val - min_h) / (max_h - min_h) if max_h > min_h else 0
+            rgb_val = int(norm * 16777215)
+            r = (rgb_val >> 16) & 255
+            g = (rgb_val >> 8) & 255
+            b = rgb_val & 255
+            pixels[x, y] = (r, g, b)
             idx += 1
             
     img = img.transpose(Image.FLIP_TOP_BOTTOM)

@@ -2,6 +2,7 @@ import http.server
 import socketserver
 import os
 import json
+import shutil
 from urllib.parse import urlparse, unquote
 
 PORT = 8000
@@ -22,7 +23,7 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
         path = unquote(parsed.path)
 
         # 1. API: List all available maps
-        if path == '/api/maps':
+        if path == '/api/maps' or path == '/api/maps.json':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -54,7 +55,7 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     
                     with open(target_file, 'rb') as f:
-                        self.wfile.write(f.read())
+                        shutil.copyfileobj(f, self.wfile)
                     return
             
             self.send_error(404, "File not found")
@@ -75,7 +76,7 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 
                 with open(target_file, 'rb') as f:
-                    self.wfile.write(f.read())
+                    shutil.copyfileobj(f, self.wfile)
                 return
             
             self.send_error(404, f"Model not found: {file_name}")

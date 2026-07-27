@@ -4,12 +4,18 @@
     <ProjectReference Include="..\bis-file-formats\BIS.Core\BIS.Core.csproj" />
     <ProjectReference Include="..\bis-file-formats\BIS.WRP\BIS.WRP.csproj" />
     <ProjectReference Include="..\bis-file-formats\BIS.PBO\BIS.PBO.csproj" />
+    <ProjectReference Include="..\bis-file-formats\BIS.P3D\BIS.P3D.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="convert_pngs.py">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
   </ItemGroup>
 
   <PropertyGroup>

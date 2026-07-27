@@ -18,7 +18,8 @@ const statArea = document.getElementById('stat-area');
 
 // Configuration
 let mapSizeMeters = 8192; // Default, will be updated via meta.json
-const MAX_HEIGHT_METERS = 300; // Estimated max height for Stratis (approx 250m)
+let minHeight = 0;
+let maxHeight = 300;
 
 // State
 let heightmapImage = null;
@@ -36,8 +37,16 @@ const mapSelect = document.getElementById('map-select');
 async function init() {
   statusText.innerText = "Fetching maps...";
   try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialMap = urlParams.get('map');
+
+    if (urlParams.has('x')) {
+      const loader = document.getElementById('loading-overlay');
+      if (loader) loader.classList.remove('hidden');
+    }
+
     try {
-      const classRes = await fetch('/classification.json');
+      const classRes = await fetch('classification.json');
       if (classRes.ok) {
         classificationData = await classRes.json();
         console.log(`Loaded ${Object.keys(classificationData).length} classification rules.`);
@@ -46,7 +55,7 @@ async function init() {
       console.warn("Could not load classification.json", e);
     }
 
-    const res = await fetch('/api/maps');
+    const res = await fetch('api/maps.json');
     const data = await res.json();
 
     mapSelect.innerHTML = '';
@@ -60,10 +69,20 @@ async function init() {
       const opt = document.createElement('option');
       opt.value = map;
       opt.innerText = map;
+      if (initialMap === map) opt.selected = true;
       mapSelect.appendChild(opt);
     });
 
-    mapSelect.addEventListener('change', () => loadMap(mapSelect.value));
+    mapSelect.addEventListener('change', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      urlParams.set('map', mapSelect.value);
+      urlParams.delete('x');
+      urlParams.delete('y');
+      urlParams.delete('w');
+      urlParams.delete('h');
+      window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
+      loadMap(mapSelect.value);
+    });
 
     // Load the first map
     loadMap(mapSelect.value);
@@ -84,10 +103,12 @@ async function loadMap(mapName) {
   try {
     // 1. Load Meta
     try {
-      const metaRes = await fetch(`/map/${mapName}/meta.json`);
+      const metaRes = await fetch(`map/${mapName}/meta.json`);
       if (metaRes.ok) {
         const meta = await metaRes.json();
         if (meta.mapSize) mapSizeMeters = meta.mapSize;
+        if (meta.minHeight !== undefined) minHeight = meta.minHeight;
+        if (meta.maxHeight !== undefined) maxHeight = meta.maxHeight;
       } else {
         mapSizeMeters = 8192; // fallback
       }
@@ -98,7 +119,7 @@ async function loadMap(mapName) {
     await new Promise((resolve, reject) => {
       heightmapImage.onload = resolve;
       heightmapImage.onerror = reject;
-      heightmapImage.src = `/map/${mapName}/heightmap.png`;
+      heightmapImage.src = `map/${mapName}/heightmap.png`;
     });
 
     const ctx = mapCanvas.getContext('2d');
@@ -106,17 +127,80 @@ async function loadMap(mapName) {
     mapCanvas.height = heightmapImage.height;
     ctx.drawImage(heightmapImage, 0, 0);
     heightmapData = ctx.getImageData(0, 0, mapCanvas.width, mapCanvas.height);
+    
+    // Convert 24-bit encoded heightmap data into a visual grayscale image for the 2D view
+    const visualData = ctx.createImageData(mapCanvas.width, mapCanvas.height);
+    for (let i = 0; i < heightmapData.data.length; i += 4) {
+      const r = heightmapData.data[i];
+      const g = heightmapData.data[i+1];
+      const b = heightmapData.data[i+2];
+      
+      let normalized = 0;
+      if (r === g && g === b) {
+          normalized = r / 255.0;
+      } else {
+          const val_24 = (r << 16) | (g << 8) | b;
+          normalized = val_24 / 16777215.0;
+      }
+      
+      const intensity = Math.floor(normalized * 255);
+      visualData.data[i] = intensity;
+      visualData.data[i+1] = intensity;
+      visualData.data[i+2] = intensity;
+      visualData.data[i+3] = 255; // Alpha
+    }
+    ctx.putImageData(visualData, 0, 0);
 
     // 3. Load Objects
-    const res = await fetch(`/map/${mapName}/objects.json`);
+    const res = await fetch(`map/${mapName}/objects.json`);
     const json = await res.json();
     objectData = json.objects;
 
     statusText.innerText = `Ready. Size: ${mapSizeMeters}m, Objects: ${objectData.length}`;
+    if (currentSelection && currentSelection.width > 10 && currentSelection.height > 10) {
+      btnRender.disabled = false;
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const px = parseFloat(urlParams.get('x'));
+    const py = parseFloat(urlParams.get('y'));
+    const pw = parseFloat(urlParams.get('w'));
+    const ph = parseFloat(urlParams.get('h'));
+
+    if (!isNaN(px) && !isNaN(py) && !isNaN(pw) && !isNaN(ph) && pw > 0 && ph > 0) {
+      const rect = canvasWrapper.getBoundingClientRect();
+      currentSelection = {
+        left: px * rect.width,
+        top: py * rect.height,
+        width: pw * rect.width,
+        height: ph * rect.height,
+        wrapperWidth: rect.width,
+        wrapperHeight: rect.height
+      };
+      selectionBox.style.display = 'block';
+      selectionBox.style.left = currentSelection.left + 'px';
+      selectionBox.style.top = currentSelection.top + 'px';
+      selectionBox.style.width = currentSelection.width + 'px';
+      selectionBox.style.height = currentSelection.height + 'px';
+      btnRender.disabled = false;
+      
+      // Auto render if it was directly linked
+      if (urlParams.has('x')) {
+        render3D();
+      } else {
+        const loader = document.getElementById('loading-overlay');
+        if (loader) loader.classList.add('hidden');
+      }
+    } else {
+      const loader = document.getElementById('loading-overlay');
+      if (loader) loader.classList.add('hidden');
+    }
 
   } catch (error) {
     statusText.innerText = `Error loading map ${mapName}.`;
     console.error(error);
+    const loader = document.getElementById('loading-overlay');
+    if (loader) loader.classList.add('hidden');
   }
 }
 
@@ -164,7 +248,9 @@ function setupSelectionEvents() {
     if (isDragging) {
       isDragging = false;
       if (currentSelection && currentSelection.width > 10 && currentSelection.height > 10) {
-        btnRender.disabled = false;
+        if (objectData !== null) {
+          btnRender.disabled = false;
+        }
       } else {
         selectionBox.style.display = 'none';
         currentSelection = null;
@@ -178,6 +264,28 @@ function setupSelectionEvents() {
 
 // 3D Rendering Logic
 async function render3D() {
+  if (!objectData) {
+    alert("Map data is still loading or failed to load. Please wait.");
+    return;
+  }
+
+  mapSelect.disabled = true;
+
+  if (currentSelection && currentSelection.wrapperWidth) {
+    const px = currentSelection.left / currentSelection.wrapperWidth;
+    const py = currentSelection.top / currentSelection.wrapperHeight;
+    const pw = currentSelection.width / currentSelection.wrapperWidth;
+    const ph = currentSelection.height / currentSelection.wrapperHeight;
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('map', mapSelect.value);
+    urlParams.set('x', px.toFixed(4));
+    urlParams.set('y', py.toFixed(4));
+    urlParams.set('w', pw.toFixed(4));
+    urlParams.set('h', ph.toFixed(4));
+    window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
+  }
+
   view2d.classList.add('hidden');
   view3d.classList.remove('hidden');
 
@@ -282,14 +390,16 @@ async function render3D() {
 
     // Decode 24-bit height from RGB, or fallback to 8-bit if it's a legacy grayscale image
     let height = 0;
+    let normalized = 0;
     if (r === g && g === b) {
         // Legacy 8-bit grayscale
-        height = (r / 255.0) * MAX_HEIGHT_METERS;
+        normalized = r / 255.0;
     } else {
         // 24-bit RGB precision
         const val_24 = (r << 16) | (g << 8) | b;
-        height = (val_24 / 16777215.0) * MAX_HEIGHT_METERS;
+        normalized = val_24 / 16777215.0;
     }
+    height = minHeight + (normalized * (maxHeight - minHeight));
 
     positions[i + 1] = height; // Y axis is up in Three.js
   }
@@ -374,7 +484,18 @@ async function render3D() {
     const safePx = Math.max(0, Math.min(px, mapCanvas.width - 1));
     const safePy = Math.max(0, Math.min(py, mapCanvas.height - 1));
     const idx = (safePy * mapCanvas.width + safePx) * 4;
-    return (heightmapData.data[idx] / 255.0) * MAX_HEIGHT_METERS;
+    const r = heightmapData.data[idx];
+    const g = heightmapData.data[idx + 1];
+    const b = heightmapData.data[idx + 2];
+    
+    let normalized = 0;
+    if (r === g && g === b) {
+        normalized = r / 255.0;
+    } else {
+        const val_24 = (r << 16) | (g << 8) | b;
+        normalized = val_24 / 16777215.0;
+    }
+    return minHeight + (normalized * (maxHeight - minHeight));
   }
 
   function getTerrainNormalAt(armaX, armaY) {
@@ -429,10 +550,13 @@ async function render3D() {
         const posX = obj.x - armaCenterX;
         const posZ = -(obj.y - armaCenterY);
 
-        const scaleX = obj.w || 1;
-        const scaleZ = obj.l || 1;
-        const roadWidth = (scaleX > 0.5) ? scaleX : 6;
-        const roadLength = (scaleZ > 0.5) ? scaleZ : 10;
+        const w = obj.w || 1;
+        const l = obj.l || 1;
+        const sX = (obj.scaleX !== undefined ? obj.scaleX : 1);
+        const sZ = (obj.scaleZ !== undefined ? obj.scaleZ : 1);
+        
+        const roadWidth = (w * sX > 0.5) ? (w * sX) : 6;
+        const roadLength = (l * sZ > 0.5) ? (l * sZ) : 10;
 
         const segX = Math.max(1, Math.ceil(roadWidth / 2));
         const segY = Math.max(1, Math.ceil(roadLength / 2));
@@ -459,7 +583,7 @@ async function render3D() {
     } else {
       try {
         // Attempt to load GLTF
-        const gltf = await gltfLoader.loadAsync(`/models/${glbFile}`);
+        const gltf = await gltfLoader.loadAsync(`models/${glbFile}`);
 
         // Find the first mesh in the GLTF scene
         let loadedMesh = null;
@@ -494,24 +618,32 @@ async function render3D() {
       const posX = obj.x - armaCenterX;
       const posZ = -(obj.y - armaCenterY);
 
-      let posY = getTerrainHeightAt(obj.x, obj.y);
+      let posY = obj.z !== undefined ? obj.z : getTerrainHeightAt(obj.x, obj.y);
 
-      // Scale
-      const scaleX = obj.w || 1;
-      const scaleY = obj.h || 1;
-      const scaleZ = obj.l || 1;
+      // Physical Dimensions
+      const w = obj.w || 1;
+      const h = obj.h || 1;
+      const l = obj.l || 1;
+      
+      // Placement Scale
+      const sX = (obj.scaleX !== undefined ? obj.scaleX : 1);
+      const sY = (obj.scaleY !== undefined ? obj.scaleY : 1);
+      const sZ = (obj.scaleZ !== undefined ? obj.scaleZ : 1);
+
+      const pitch = obj.pitch ? THREE.MathUtils.degToRad(-obj.pitch) : 0;
+      const yaw = THREE.MathUtils.degToRad(-obj.dir);
+      const roll = obj.roll ? THREE.MathUtils.degToRad(-obj.roll) : 0;
 
       if (isModelLoaded) {
         // Usually models pivot on the bottom
         dummy.scale.set(1, 1, 1);
         dummy.position.set(posX, posY, posZ);
-        dummy.rotation.set(0, THREE.MathUtils.degToRad(-obj.dir), 0);
+        dummy.rotation.set(pitch, yaw, roll, 'YXZ');
       } else {
         // Box needs to be scaled up and shifted by half height
-        posY += (scaleY / 2);
-        dummy.scale.set(scaleX, scaleY, scaleZ);
+        dummy.scale.set(w * sX, h * sY, l * sZ);
         dummy.position.set(posX, posY, posZ);
-        dummy.rotation.set(0, THREE.MathUtils.degToRad(-obj.dir), 0);
+        dummy.rotation.set(pitch, yaw, roll, 'YXZ');
       }
 
       dummy.updateMatrix();
@@ -568,6 +700,14 @@ async function render3D() {
 
   // Cleanup handler for back button
   btnBack.onclick = () => {
+    mapSelect.disabled = false;
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.delete('x');
+    urlParams.delete('y');
+    urlParams.delete('w');
+    urlParams.delete('h');
+    window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
+
     isRendering = false;
     view3d.classList.add('hidden');
     view2d.classList.remove('hidden');
@@ -627,6 +767,9 @@ async function render3D() {
     threeCamera.updateProjectionMatrix();
     threeRenderer.setSize(window.innerWidth, window.innerHeight);
   };
+  
+  // Hide loading screen when done setting up
+  document.getElementById('loading-overlay').classList.add('hidden');
 }
 
 // Start

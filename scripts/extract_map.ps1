@@ -1,3 +1,8 @@
+param (
+    [Parameter(Mandatory=$true)]
+    [string]$MapName
+)
+
 $ConfigPath = Join-Path $PSScriptRoot "..\config.json"
 if (-not (Test-Path $ConfigPath)) {
     Write-Error "Could not find config.json at $ConfigPath"
@@ -8,9 +13,6 @@ $config = Get-Content $ConfigPath | ConvertFrom-Json
 $Arma3Dir = $config.arma3_dir
 $WorkshopDir = $config.workshop_dir
 $ExportsDir = $config.exports_dir
-
-# Combine base game and workshop directories for processing if needed, 
-# but WrpAnalyzer currently takes a single directory. We'll run it twice if WorkshopDir exists.
 
 $WrpAnalyzerDir = Join-Path $PSScriptRoot "WrpAnalyzer"
 $RawDataDir = Join-Path $PSScriptRoot "extracted_raw_data"
@@ -26,18 +28,15 @@ if (-not (Test-Path $ExportsDir)) {
 Set-Location $WrpAnalyzerDir
 
 Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "        EXTRACTING ARMA 3 BASE MAPS           " -ForegroundColor Cyan
+Write-Host "        EXTRACTING ARMA 3 MAP ($MapName)      " -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Cyan
 
 # Run for base Arma 3 directory
-dotnet run -c Release -- extract "`"$Arma3Dir`"" "`"$RawDataDir`"" "`"$ExportsDir`""
+dotnet run -c Release -- extract_single "`"$Arma3Dir`"" "`"$RawDataDir`"" "`"$ExportsDir`"" "`"$MapName`""
 
 if ($WorkshopDir -and (Test-Path $WorkshopDir)) {
-    Write-Host "`n==============================================" -ForegroundColor Cyan
-    Write-Host "        EXTRACTING WORKSHOP MAPS              " -ForegroundColor Cyan
-    Write-Host "==============================================" -ForegroundColor Cyan
-    dotnet run -c Release -- extract "`"$WorkshopDir`"" "`"$RawDataDir`"" "`"$ExportsDir`""
+    dotnet run -c Release -- extract_single "`"$WorkshopDir`"" "`"$RawDataDir`"" "`"$ExportsDir`"" "`"$MapName`""
 }
 
 Set-Location $PSScriptRoot
-Write-Host "`nMap extraction complete! You can now run process_map.ps1 -MapName <Name> to voxelize models." -ForegroundColor Green
+Write-Host "`nMap extraction complete!" -ForegroundColor Green
