@@ -56,11 +56,12 @@ The vanilla `P3DDebinarizer` is built for older assets (ODOL v73) and contains U
 ## Usage
 
 ### 1. Extract Map Data
-First, you must unpack a map's `.pbo` archive to extract its `.wrp` file. Then, use the C# `WrpAnalyzer` tool to parse the `.wrp` file (e.g., Altis or Chernarus) into raw JSON and PNG data:
-```bash
-cd scripts/WrpAnalyzer
-dotnet run -- "C:\path\to\unpacked\altis.wrp" "C:\Users\YourName\Documents\Arma3MapExports\Altis"
+You can automatically scan your Arma 3 installation (and Workshop folder) to find, unpack, and parse all map PBOs using the provided extraction script. This utilizes the C# `WrpAnalyzer` internally to generate raw JSON and PNG data for each map:
+```powershell
+cd scripts
+.\extract_all_maps.ps1
 ```
+*(Note: This might take a while depending on how many maps and mods you have installed.)*
 
 ### 2. Run the Asset Pipeline
 Execute the PowerShell script to automatically extract and convert all 3D models referenced by the map. Models are stored in a centralized cache (`scripts/converted_models`) to avoid duplication across maps.

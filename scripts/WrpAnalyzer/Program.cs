@@ -242,6 +242,10 @@ namespace WrpAnalyzer
                                                 float yaw = (float)(Math.Atan2(obj.Transform.Matrix.M31, obj.Transform.Matrix.M33) * 180.0 / Math.PI);
                                                 if (yaw < 0) yaw += 360.0f;
                                                 
+                                                float sx = (float)Math.Sqrt(obj.Transform.Matrix.M11 * obj.Transform.Matrix.M11 + obj.Transform.Matrix.M12 * obj.Transform.Matrix.M12 + obj.Transform.Matrix.M13 * obj.Transform.Matrix.M13);
+                                                float sy = (float)Math.Sqrt(obj.Transform.Matrix.M21 * obj.Transform.Matrix.M21 + obj.Transform.Matrix.M22 * obj.Transform.Matrix.M22 + obj.Transform.Matrix.M23 * obj.Transform.Matrix.M23);
+                                                float sz = (float)Math.Sqrt(obj.Transform.Matrix.M31 * obj.Transform.Matrix.M31 + obj.Transform.Matrix.M32 * obj.Transform.Matrix.M32 + obj.Transform.Matrix.M33 * obj.Transform.Matrix.M33);
+                                                
                                                 if (validCount > 0) sw.WriteLine(",");
                                                 
                                                 string modelBaseName = Path.GetFileName(obj.Model);
@@ -253,9 +257,9 @@ namespace WrpAnalyzer
                                                 sw.Write($"      \"y\": {y.ToString(CultureInfo.InvariantCulture)},\n");
                                                 sw.Write($"      \"z\": {z.ToString(CultureInfo.InvariantCulture)},\n");
                                                 sw.Write($"      \"dir\": {yaw.ToString(CultureInfo.InvariantCulture)},\n");
-                                                sw.Write($"      \"w\": 1,\n");
-                                                sw.Write($"      \"l\": 1,\n");
-                                                sw.Write($"      \"h\": 1\n");
+                                                sw.Write($"      \"w\": {sx.ToString(CultureInfo.InvariantCulture)},\n");
+                                                sw.Write($"      \"l\": {sz.ToString(CultureInfo.InvariantCulture)},\n");
+                                                sw.Write($"      \"h\": {sy.ToString(CultureInfo.InvariantCulture)}\n");
                                                 sw.Write("    }");
                                                 
                                                 validCount++;

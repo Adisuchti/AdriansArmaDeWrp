@@ -31,6 +31,7 @@ scripts/bis-file-formats/
 
 # Extracted data (huge auto-generated output)
 extracted_data/
+extracted_raw_data/
 
 # Python
 __pycache__/
