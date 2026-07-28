@@ -108,7 +108,7 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def _serve_objects_in_region(self, map_name, query):
-        """Stream-filter objects.json by bounding box, returning only objects in the region."""
+        """Stream-filter objects.json by bounding box, returning only objects in the region as NDJSON."""
         objects_file = os.path.join(EXPORTS_DIR, map_name, 'objects.json')
         if not os.path.exists(objects_file):
             self.send_error(404, f"objects.json not found for map {map_name}")
@@ -124,64 +124,65 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
             return
 
         self.send_response(200)
-        self.send_header('Content-type', 'application/json')
+        self.send_header('Content-type', 'application/x-ndjson')
+        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
 
-        # Read the entire file and use json.JSONDecoder to parse objects one by one
-        # This handles both indented and minified formats
-        with open(objects_file, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # Step 1: Find the byte position of '[' after "objects" — read only the file header
+        array_start = -1
+        with open(objects_file, 'rb') as f:
+            accumulated = b''
+            while True:
+                chunk = f.read(8192)
+                if not chunk:
+                    break
+                accumulated += chunk
+                idx = accumulated.find(b'"objects"')
+                if idx != -1:
+                    arr_idx = accumulated.find(b'[', idx)
+                    if arr_idx != -1:
+                        array_start = arr_idx
+                        break
 
-        # Find the start of the "objects" array
-        idx = content.find('"objects"')
-        if idx == -1:
-            self.wfile.write(b'{"objects":[]}')
-            return
-
-        # Find the first '[' after "objects"
-        array_start = content.find('[', idx)
         if array_start == -1:
-            self.wfile.write(b'{"objects":[]}')
             return
 
-        # Skip past the opening bracket of the array
-        pos = array_start + 1
-
+        # Step 2: Stream-parse objects from the file in chunks — never loads the entire file
         decoder = json.JSONDecoder()
-        matching_objects = []
-        MAX_OBJECTS = 100000  # Safety limit
+        buffer = ''
 
-        while pos < len(content) and len(matching_objects) < MAX_OBJECTS:
-            # Skip whitespace and commas
-            while pos < len(content) and content[pos] in ' \t\n\r,':
-                pos += 1
+        with open(objects_file, 'r', encoding='utf-8') as f:
+            f.seek(array_start + 1)  # Skip past the '['
 
-            if pos >= len(content):
-                break
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                buffer += chunk
 
-            # Check if we've hit the end of the array
-            if content[pos] == ']':
-                break
+                while True:
+                    # Trim leading whitespace and commas
+                    buffer = buffer.lstrip(' \t\n\r,')
+                    if not buffer:
+                        break
+                    if buffer[0] == ']':
+                        return  # End of objects array
 
-            try:
-                obj, end = decoder.raw_decode(content, pos)
-                obj_x = obj.get('x')
-                obj_y = obj.get('y')
-                if obj_x is not None and obj_y is not None:
-                    if min_x <= obj_x <= max_x and min_y <= obj_y <= max_y:
-                        matching_objects.append(json.dumps(obj, separators=(',', ':')))
-                pos = end
-            except json.JSONDecodeError:
-                # Skip malformed entries
-                pos += 1
+                    try:
+                        obj, end = decoder.raw_decode(buffer)
+                    except json.JSONDecodeError:
+                        # Incomplete object at chunk boundary — need more data
+                        break
 
-        # Write response
-        self.wfile.write(b'{"objects":[')
-        for i, obj_json in enumerate(matching_objects):
-            if i > 0:
-                self.wfile.write(b',')
-            self.wfile.write(obj_json.encode('utf-8'))
-        self.wfile.write(b']}')
+                    obj_x = obj.get('x')
+                    obj_y = obj.get('y')
+                    if obj_x is not None and obj_y is not None:
+                        if min_x <= obj_x <= max_x and min_y <= obj_y <= max_y:
+                            self.wfile.write(
+                                json.dumps(obj, separators=(',', ':')).encode('utf-8') + b'\n'
+                            )
+
+                    buffer = buffer[end:]
 
     def _segment_intersects_bbox(self, p1, p2, min_x, max_x, min_y, max_y):
         """Check if a line segment intersects or is within a bounding box."""

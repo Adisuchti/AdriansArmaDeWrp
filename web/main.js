@@ -426,8 +426,43 @@ async function render3D() {
       `map/${mapSelect.value}/objects_in_region?minX=${armaMinX}&maxX=${armaMaxX}&minY=${armaMinY}&maxY=${armaMaxY}`
     );
     if (regionRes.ok) {
-      const regionJson = await regionRes.json();
-      validObjects = regionJson.objects || [];
+      // Stream NDJSON response line-by-line — never holds the full payload in memory
+      const reader = regionRes.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let done = false;
+
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: !streamDone });
+        }
+
+        // Process complete lines
+        let newlineIdx;
+        while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.substring(0, newlineIdx).trim();
+          buffer = buffer.substring(newlineIdx + 1);
+          if (line) {
+            try {
+              validObjects.push(JSON.parse(line));
+            } catch (e) {
+              // Skip malformed lines
+            }
+          }
+        }
+
+        done = streamDone;
+      }
+
+      // Process any remaining data after stream ends (last line without trailing newline)
+      if (buffer.trim()) {
+        try {
+          validObjects.push(JSON.parse(buffer.trim()));
+        } catch (e) {
+          // Skip malformed trailing data
+        }
+      }
     } else {
       console.warn(`Region API returned ${regionRes.status}, using empty set.`);
     }
