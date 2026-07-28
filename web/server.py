@@ -15,7 +15,7 @@ except Exception as e:
     print(f"Failed to load config.json: {e}")
     EXPORTS_DIR = os.path.join(os.path.expanduser('~'), 'Documents', 'Arma3MapExports')
 
-MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'scripts', 'converted_models'))
+MODELS_DIR = os.path.join(EXPORTS_DIR, 'models')
 
 class MapServer(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):

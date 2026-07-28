@@ -12,6 +12,24 @@ namespace WrpAnalyzer
 {
     public static class Voxelizer
     {
+        private static readonly Vector3[] FaceNormals = {
+            new Vector3( 0,  0,  1), // Front
+            new Vector3( 0,  0, -1), // Back
+            new Vector3( 1,  0,  0), // Right
+            new Vector3(-1,  0,  0), // Left
+            new Vector3( 0,  1,  0), // Top
+            new Vector3( 0, -1,  0), // Bottom
+        };
+
+        private static readonly (int dx, int dy, int dz)[] NeighborOffsets = {
+            ( 0,  0,  1), // Front
+            ( 0,  0, -1), // Back
+            ( 1,  0,  0), // Right
+            (-1,  0,  0), // Left
+            ( 0,  1,  0), // Top
+            ( 0, -1,  0), // Bottom
+        };
+
         public static void ExportToGlb(ModelInfo modelInfo, LOD geometryLod, string outputPath)
         {
             if (geometryLod.Vertices == null || geometryLod.Vertices.Count == 0) return;
@@ -21,7 +39,8 @@ namespace WrpAnalyzer
             float sizeZ = modelInfo.BboxMax.Z - modelInfo.BboxMin.Z;
             
             float maxExtent = Math.Max(sizeX, Math.Max(sizeY, sizeZ));
-            float voxelSize = Math.Max(0.1f, Math.Min(10.0f, maxExtent / 20.0f));
+            // Doubled voxel resolution: divide by 40 instead of 20
+            float voxelSize = Math.Max(0.05f, Math.Min(10.0f, maxExtent / 40.0f));
             
             HashSet<(int, int, int)> occupiedVoxels = new HashSet<(int, int, int)>();
             
@@ -33,11 +52,13 @@ namespace WrpAnalyzer
                 occupiedVoxels.Add((vx, vy, vz));
             }
             
+            // Voxelize vertices directly
             foreach (var v in geometryLod.Vertices)
             {
                 AddVoxel(v.X, v.Y, v.Z);
             }
             
+            // Voxelize triangle surfaces via barycentric sampling
             if (geometryLod.Polygons != null && geometryLod.Polygons.Faces != null)
             {
                 foreach (var face in geometryLod.Polygons.Faces)
@@ -69,10 +90,10 @@ namespace WrpAnalyzer
                                 float u = (float)si / steps01;
                                 for (int sj = 0; sj <= steps02; sj++)
                                 {
-                                    float v = (float)sj / steps02;
-                                    if (u + v <= 1.0f)
+                                    float vVal = (float)sj / steps02;
+                                    if (u + vVal <= 1.0f)
                                     {
-                                        Vector3 p = p0 + (u * v01) + (v * v02);
+                                        Vector3 p = p0 + (u * v01) + (vVal * v02);
                                         AddVoxel(p.X, p.Y, p.Z);
                                     }
                                 }
@@ -82,6 +103,7 @@ namespace WrpAnalyzer
                 }
             }
             
+            // Build geometry with face culling and vertex deduplication
             var material = new MaterialBuilder("VoxelMat")
                 .WithBaseColor(new Vector4(0.5f, 0.5f, 0.5f, 1.0f))
                 .WithMetallicRoughness(0.5f, 0.5f);
@@ -89,36 +111,19 @@ namespace WrpAnalyzer
             var meshBuilder = new MeshBuilder<VertexPositionNormal>("VoxelMesh");
             var prim = meshBuilder.UsePrimitive(material);
             
-            void AddQuad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 normal)
-            {
-                var va = new VertexPositionNormal(a, normal);
-                var vb = new VertexPositionNormal(b, normal);
-                var vc = new VertexPositionNormal(c, normal);
-                var vd = new VertexPositionNormal(d, normal);
-                
-                prim.AddTriangle(va, vb, vc);
-                prim.AddTriangle(va, vc, vd);
-            }
+            var vertList = new List<VertexPositionNormal>();
+            var uniqueVerts = new Dictionary<(Vector3 pos, Vector3 norm), int>();
             
-            void AddCube(Vector3 center, float size)
+            VertexPositionNormal GetOrAddVertex(Vector3 pos, Vector3 normal)
             {
-                float hs = size / 2f;
-                
-                Vector3 v0 = center + new Vector3(-hs, -hs, -hs);
-                Vector3 v1 = center + new Vector3( hs, -hs, -hs);
-                Vector3 v2 = center + new Vector3( hs,  hs, -hs);
-                Vector3 v3 = center + new Vector3(-hs,  hs, -hs);
-                Vector3 v4 = center + new Vector3(-hs, -hs,  hs);
-                Vector3 v5 = center + new Vector3( hs, -hs,  hs);
-                Vector3 v6 = center + new Vector3( hs,  hs,  hs);
-                Vector3 v7 = center + new Vector3(-hs,  hs,  hs);
-                
-                AddQuad(v4, v5, v6, v7, new Vector3(0, 0, 1));  // Front
-                AddQuad(v1, v0, v3, v2, new Vector3(0, 0, -1)); // Back
-                AddQuad(v5, v1, v2, v6, new Vector3(1, 0, 0));  // Right
-                AddQuad(v0, v4, v7, v3, new Vector3(-1, 0, 0)); // Left
-                AddQuad(v7, v6, v2, v3, new Vector3(0, 1, 0));  // Top
-                AddQuad(v0, v1, v5, v4, new Vector3(0, -1, 0)); // Bottom
+                var key = (pos, normal);
+                if (uniqueVerts.TryGetValue(key, out int idx))
+                    return vertList[idx];
+                var vert = new VertexPositionNormal(pos, normal);
+                int newIdx = vertList.Count;
+                uniqueVerts[key] = newIdx;
+                vertList.Add(vert);
+                return vert;
             }
             
             foreach (var voxel in occupiedVoxels)
@@ -126,8 +131,75 @@ namespace WrpAnalyzer
                 float cx = voxel.Item1 * voxelSize + (voxelSize / 2f);
                 float cy = voxel.Item2 * voxelSize + (voxelSize / 2f);
                 float cz = voxel.Item3 * voxelSize + (voxelSize / 2f);
+                float hs = voxelSize / 2f;
                 
-                AddCube(new Vector3(cx, cy, cz), voxelSize);
+                Vector3 center = new Vector3(cx, cy, cz);
+                
+                // Check all 6 faces — only emit if neighbor voxel is absent
+                for (int fi = 0; fi < 6; fi++)
+                {
+                    var offset = NeighborOffsets[fi];
+                    int nx = voxel.Item1 + offset.dx;
+                    int ny = voxel.Item2 + offset.dy;
+                    int nz = voxel.Item3 + offset.dz;
+                    
+                    if (occupiedVoxels.Contains((nx, ny, nz)))
+                        continue;
+                    
+                    var normal = FaceNormals[fi];
+                    float h = hs;
+                    
+                    Vector3 a, b, c, d;
+                    switch (fi)
+                    {
+                        case 0: // Front (+Z)
+                            a = center + new Vector3(-h, -h,  h);
+                            b = center + new Vector3( h, -h,  h);
+                            c = center + new Vector3( h,  h,  h);
+                            d = center + new Vector3(-h,  h,  h);
+                            break;
+                        case 1: // Back (-Z)
+                            a = center + new Vector3( h, -h, -h);
+                            b = center + new Vector3(-h, -h, -h);
+                            c = center + new Vector3(-h,  h, -h);
+                            d = center + new Vector3( h,  h, -h);
+                            break;
+                        case 2: // Right (+X)
+                            a = center + new Vector3( h, -h,  h);
+                            b = center + new Vector3( h, -h, -h);
+                            c = center + new Vector3( h,  h, -h);
+                            d = center + new Vector3( h,  h,  h);
+                            break;
+                        case 3: // Left (-X)
+                            a = center + new Vector3(-h, -h, -h);
+                            b = center + new Vector3(-h, -h,  h);
+                            c = center + new Vector3(-h,  h,  h);
+                            d = center + new Vector3(-h,  h, -h);
+                            break;
+                        case 4: // Top (+Y)
+                            a = center + new Vector3(-h,  h,  h);
+                            b = center + new Vector3( h,  h,  h);
+                            c = center + new Vector3( h,  h, -h);
+                            d = center + new Vector3(-h,  h, -h);
+                            break;
+                        case 5: // Bottom (-Y)
+                            a = center + new Vector3(-h, -h, -h);
+                            b = center + new Vector3( h, -h, -h);
+                            c = center + new Vector3( h, -h,  h);
+                            d = center + new Vector3(-h, -h,  h);
+                            break;
+                        default:
+                            continue;
+                    }
+                    
+                    var va = GetOrAddVertex(a, normal);
+                    var vb = GetOrAddVertex(b, normal);
+                    var vc = GetOrAddVertex(c, normal);
+                    var vd = GetOrAddVertex(d, normal);
+                    
+                    prim.AddTriangle(va, vb, vc);
+                    prim.AddTriangle(va, vc, vd);
+                }
             }
             
             var scene = new SceneBuilder();

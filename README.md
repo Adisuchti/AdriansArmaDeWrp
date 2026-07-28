@@ -10,7 +10,7 @@ Check out a live interactive demo of the 3D map viewer showing the town of Elekt
 ## Features
 - Parses proprietary .wrp (OPRW v25) map files to extract terrain and object data.
 - Automatically searches Arma 3 base game and !Workshop directories for required models.
-- **Procedural Generation**: Does *not* extract or convert proprietary 3D meshes. Instead, it procedurally generates abstract, blocky "Voxel" representations of buildings and trees based on collision bounding boxes.
+- **Procedural Generation**: Does *not* extract or convert proprietary 3D meshes. Instead, it procedurally generates abstract, blocky "Voxel" representations of buildings and trees based on collision bounding boxes. Voxelization is fully parallelized across all CPU cores, and internal faces between adjacent voxels are automatically culled to reduce triangle count and improve rendering performance.
 - Interactive 3D Web Viewer built with Three.js.
 
 ## Prerequisites
@@ -74,12 +74,13 @@ cd scripts
 *(This scans all extracted maps, caches unique models, and processes dimensions exactly once per object, massively speeding up the calculation across all your maps.)*
 
 #### Option B: Full Voxelization (Higher Quality)
-This will generate abstract voxel 3D representations of the map's buildings as `.glb` files for the web viewer. This creates a beautiful "Minecraft-style" city, but takes longer to process and uses more storage.
+This will generate abstract voxel 3D representations of the map's buildings as `.glb` files for the web viewer. This creates a beautiful "Minecraft-style" city with high detail. The voxelizer runs multithreaded (using all available CPU cores) and automatically culls internal faces between adjacent voxels, significantly reducing the triangle count and output file size. Voxel resolution has been doubled compared to earlier versions for better detail.
+
 ```powershell
 cd scripts
 .\process_map.ps1 -MapName "Altis"
 ```
-*(This process caches the voxel models centrally, so if you run it again on a different map that shares buildings, it will finish instantly.)*
+*(Voxelized models are cached centrally, so running it again on a different map that shares buildings will finish instantly. To regenerate all models with updated voxelization settings, delete the existing `.glb` files in the `models/` directory first.)*
 
 ### 3. Start the Web Viewer
 Start the local Python HTTP server, which acts as an API for the web frontend and serves the centralized models:

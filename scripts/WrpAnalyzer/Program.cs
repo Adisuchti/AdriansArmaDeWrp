@@ -4,7 +4,10 @@ using System.Linq;
 using System.Globalization;
 using System.Text;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Newtonsoft.Json;
@@ -711,14 +714,19 @@ namespace WrpAnalyzer
                 string line;
                 while ((line = sr.ReadLine()) != null)
                 {
-                    if (line.Contains("\"model\":"))
+                    int pos = 0;
+                    while ((pos = line.IndexOf("\"model\":", pos, StringComparison.Ordinal)) != -1)
                     {
-                        int start = line.IndexOf("\"model\":") + 9;
-                        int end = line.IndexOf("\"", start);
-                        if (start > 8 && end > start) {
-                            string model = line.Substring(start, end - start);
+                        pos += 8;
+                        while (pos < line.Length && (line[pos] == ' ' || line[pos] == '"')) pos++;
+                        int end = line.IndexOf("\"", pos, StringComparison.Ordinal);
+                        if (end > pos)
+                        {
+                            string model = line.Substring(pos, end - pos);
                             neededModels.Add(model);
                         }
+                        pos = end;
+                        if (pos <= 0) break;
                     }
                 }
             }
@@ -743,10 +751,16 @@ namespace WrpAnalyzer
             }
             
             Console.WriteLine($"{missingModels.Count} models need to be voxelized.");
+            Console.WriteLine($"Using {Environment.ProcessorCount} threads for parallel voxelization.");
             var p3dToPboMap = IndexPbos(armaDir);
             
             int processed = 0;
-            foreach (var modelBaseName in missingModels)
+            var processedLock = new object();
+            var total = missingModels.Count;
+            
+            Parallel.ForEach(missingModels,
+                new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
+                (modelBaseName) =>
             {
                 string glbFileName = Path.GetFileNameWithoutExtension(modelBaseName) + ".glb";
                 string glbFilePath = Path.Combine(modelsWebDir, glbFileName);
@@ -765,8 +779,13 @@ namespace WrpAnalyzer
                                         
                                         if (geometryLod != null) {
                                             Voxelizer.ExportToGlb(p3d.ODOL.ModelInfo, geometryLod, glbFilePath);
-                                            processed++;
-                                            if (processed % 100 == 0) Console.WriteLine($"Voxelized {processed}/{missingModels.Count} models...");
+                                            
+                                            lock (processedLock)
+                                            {
+                                                processed++;
+                                                if (processed % 100 == 0)
+                                                    Console.WriteLine($"Voxelized {processed}/{total} models...");
+                                            }
                                         }
                                     }
                                 }
@@ -776,7 +795,8 @@ namespace WrpAnalyzer
                         // Skip if corrupt
                     }
                 }
-            }
+            });
+            
             Console.WriteLine($"\nVoxelization complete! Generated {processed} new models for {mapName}.");
         }
         static void ExtractRoads(string mapName, string[] pboFiles, string rawDir)
