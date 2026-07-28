@@ -186,6 +186,7 @@ namespace WrpAnalyzer
                                                 float y = obj.Transform.Matrix.M43; 
                                                 float z = obj.Transform.Matrix.M42; 
                                                 float yaw = (float)(Math.Atan2(obj.Transform.Matrix.M31, obj.Transform.Matrix.M33) * 180.0 / Math.PI);
+                                                yaw = (yaw + 180.0f) % 360.0f;
                                                 if (yaw < 0) yaw += 360.0f;
                                                 
                                                 float scaleX = (float)Math.Sqrt(obj.Transform.Matrix.M11 * obj.Transform.Matrix.M11 + obj.Transform.Matrix.M12 * obj.Transform.Matrix.M12 + obj.Transform.Matrix.M13 * obj.Transform.Matrix.M13);
