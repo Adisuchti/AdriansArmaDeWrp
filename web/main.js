@@ -530,14 +530,6 @@ async function render3D() {
   };
   const allInstancedMeshes = [];
   
-  const roadGeometries = [];
-  const roadMaterial = new THREE.MeshStandardMaterial({
-    color: 0x2b2d31, // Dark asphalt color
-    roughness: 0.95,
-    metalness: 0.05,
-    side: THREE.DoubleSide
-  });
-
   // Start Animation Loop early so models stream in
   let isRendering = true;
   function animate() {
@@ -559,39 +551,7 @@ async function render3D() {
     const isRoad = group.category === 'roads' || glbFile.includes('procedural_road');
 
     if (isRoad) {
-      group.objects.forEach(obj => {
-        const posX = obj.x - armaCenterX;
-        const posZ = -(obj.y - armaCenterY);
-
-        const w = obj.w || 1;
-        const l = obj.l || 1;
-        const sX = (obj.scaleX !== undefined ? obj.scaleX : 1);
-        const sZ = (obj.scaleZ !== undefined ? obj.scaleZ : 1);
-        
-        const roadWidth = (w * sX > 0.5) ? (w * sX) : 6;
-        const roadLength = (l * sZ > 0.5) ? (l * sZ) : 10;
-
-        const segX = Math.max(1, Math.ceil(roadWidth / 2));
-        const segY = Math.max(1, Math.ceil(roadLength / 2));
-
-        const roadGeo = new THREE.PlaneGeometry(roadWidth, roadLength, segX, segY);
-        roadGeo.rotateX(-Math.PI / 2);
-        roadGeo.rotateY(THREE.MathUtils.degToRad(-obj.dir));
-        roadGeo.translate(posX, 0, posZ);
-
-        const positions = roadGeo.attributes.position;
-        for (let i = 0; i < positions.count; i++) {
-          const vx = positions.getX(i);
-          const vz = positions.getZ(i);
-          const armaX = vx + armaCenterX;
-          const armaY = armaCenterY - vz;
-          const vy = getTerrainHeightAt(armaX, armaY) + 0.25;
-          positions.setY(i, vy);
-        }
-
-        roadGeo.computeVertexNormals();
-        roadGeometries.push(roadGeo);
-      });
+      // Roads are now handled via roadnet.json polylines — skip old WRP road objects
       continue;
     } else {
       try {
@@ -670,15 +630,146 @@ async function render3D() {
     allInstancedMeshes.push(instancedMesh);
   }
 
-  if (roadGeometries.length > 0) {
-    const mergedRoadGeo = BufferGeometryUtils.mergeGeometries(roadGeometries, false);
-    const roadMesh = new THREE.Mesh(mergedRoadGeo, roadMaterial);
-    roadMesh.receiveShadow = true;
-    threeScene.add(roadMesh);
-    categoryMeshes['roads'].push(roadMesh);
+  // 5. Fetch and render road network from roadnet.json polylines
+  // Road colors match the roads.png convention:
+  //   Track: #D6C2A6, Road: #B2B2B2, Main Road: #E6804C
+  statusText.innerText = 'Loading road network...';
+  try {
+    const roadsRes = await fetch(
+      `map/${mapSelect.value}/roads_in_region?minX=${armaMinX}&maxX=${armaMaxX}&minY=${armaMinY}&maxY=${armaMaxY}`
+    );
+    if (roadsRes.ok) {
+      const roadsJson = await roadsRes.json();
+      const regionRoads = roadsJson.roads || [];
+
+      if (regionRoads.length > 0) {
+        const roadColors = {
+          track:    { color: 0xD6C2A6, roughness: 0.9, metalness: 0.0 },
+          road:     { color: 0xB2B2B2, roughness: 0.85, metalness: 0.05 },
+          mainRoad: { color: 0xE6804C, roughness: 0.8, metalness: 0.1 },
+        };
+
+        const roadGeosByType = { track: [], road: [], mainRoad: [] };
+
+        regionRoads.forEach(road => {
+          const pts = road.pts;
+          if (!pts || pts.length < 2) return;
+
+          const roadType = road.type || 'road';
+          const roadWidth = (road.width && road.width > 0.5) ? road.width : 10.0;
+          const roadThickness = 0.5;
+          const heightOffset = 0.20; // Snug above terrain
+
+          // Build a strip geometry along the polyline
+          const verts = [];
+          const indices = [];
+          const uvs = [];
+
+          for (let i = 0; i < pts.length; i++) {
+            const pt = pts[i];
+            const armaX = pt[0];
+            const armaY = pt[1];
+
+            // Direction of the segment at this point
+            let dirX = 0, dirY = 0;
+            if (i === 0 && pts.length > 1) {
+              dirX = pts[1][0] - pts[0][0];
+              dirY = pts[1][1] - pts[0][1];
+            } else if (i === pts.length - 1 && pts.length > 1) {
+              dirX = pts[i][0] - pts[i-1][0];
+              dirY = pts[i][1] - pts[i-1][1];
+            } else if (pts.length > 2) {
+              dirX = pts[i+1][0] - pts[i-1][0];
+              dirY = pts[i+1][1] - pts[i-1][1];
+            }
+
+            const segLen = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
+            const perpX = (-dirY / segLen) * (roadWidth / 2);
+            const perpY = (dirX / segLen) * (roadWidth / 2);
+
+            const terrainH = getTerrainHeightAt(armaX, armaY);
+
+            // Top vertices (road surface)
+            const tLeftX = armaX + perpX - armaCenterX;
+            const tLeftY = armaCenterY - (armaY + perpY); // Three.js Z
+            verts.push(tLeftX, terrainH + heightOffset, tLeftY);
+            uvs.push(0, i / (pts.length - 1));
+
+            const tRightX = armaX - perpX - armaCenterX;
+            const tRightY = armaCenterY - (armaY - perpY);
+            verts.push(tRightX, terrainH + heightOffset, tRightY);
+            uvs.push(1, i / (pts.length - 1));
+
+            // Bottom vertices (below road surface for thickness)
+            verts.push(tLeftX, terrainH + heightOffset - roadThickness, tLeftY);
+            uvs.push(0, i / (pts.length - 1));
+
+            verts.push(tRightX, terrainH + heightOffset - roadThickness, tRightY);
+            uvs.push(1, i / (pts.length - 1));
+          }
+
+          // Build indices for quads along the strip (each step = 4 vertices)
+          const numPts = pts.length;
+          for (let i = 0; i < numPts - 1; i++) {
+            const base = i * 4;
+            // Top face (two triangles)
+            indices.push(base, base + 1, base + 4);
+            indices.push(base + 1, base + 5, base + 4);
+            // Bottom face
+            indices.push(base + 2, base + 6, base + 3);
+            indices.push(base + 3, base + 6, base + 7);
+            // Left side
+            indices.push(base, base + 4, base + 2);
+            indices.push(base + 2, base + 4, base + 6);
+            // Right side
+            indices.push(base + 1, base + 3, base + 5);
+            indices.push(base + 3, base + 7, base + 5);
+          }
+
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+          geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+          geo.setIndex(indices);
+          geo.computeVertexNormals();
+
+          if (!roadGeosByType[roadType]) {
+            roadGeosByType[roadType] = [];
+          }
+          roadGeosByType[roadType].push(geo);
+        });
+
+        // Merge and create one mesh per road type (matching PNG colors)
+        for (const [roadType, geos] of Object.entries(roadGeosByType)) {
+          if (geos.length === 0) continue;
+
+          const mergedGeo = BufferGeometryUtils.mergeGeometries(geos, false);
+          const typeColors = roadColors[roadType] || roadColors['road'];
+
+          const roadMat = new THREE.MeshStandardMaterial({
+            color: typeColors.color,
+            roughness: typeColors.roughness,
+            metalness: typeColors.metalness,
+            side: THREE.DoubleSide,
+            flatShading: true,
+          });
+
+          const roadMesh = new THREE.Mesh(mergedGeo, roadMat);
+          roadMesh.receiveShadow = true;
+          roadMesh.castShadow = true;
+          threeScene.add(roadMesh);
+          categoryMeshes['roads'].push(roadMesh);
+        }
+
+        statusText.innerText = `Loaded ${validObjects.length.toLocaleString()} objects + ${regionRoads.length} road segments in region.`;
+      }
+    } else {
+      console.warn(`Roads API returned ${roadsRes.status}, no road overlay.`);
+    }
+  } catch (e) {
+    console.error('Failed to fetch roads for region:', e);
   }
 
-  // 5. Connect UI Filters
+  // 6. Connect UI Filters
   const filters = {
     buildings: document.getElementById('filter-buildings'),
     nature: document.getElementById('filter-nature'),
