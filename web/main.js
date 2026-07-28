@@ -657,56 +657,63 @@ async function render3D() {
 
           const roadType = road.type || 'road';
           const roadWidth = (road.width && road.width > 0.5) ? road.width : 10.0;
-          const roadThickness = 0.5;
-          const heightOffset = 0.20; // Snug above terrain
+           const roadThickness = 0.5;
+           const heightOffset = 0.35; // Safe clearance above terrain
 
           // Build a strip geometry along the polyline
           const verts = [];
           const indices = [];
           const uvs = [];
 
-          for (let i = 0; i < pts.length; i++) {
-            const pt = pts[i];
-            const armaX = pt[0];
-            const armaY = pt[1];
+           for (let i = 0; i < pts.length; i++) {
+             const pt = pts[i];
+             const armaX = pt[0];
+             const armaY = pt[1];
 
-            // Direction of the segment at this point
-            let dirX = 0, dirY = 0;
-            if (i === 0 && pts.length > 1) {
-              dirX = pts[1][0] - pts[0][0];
-              dirY = pts[1][1] - pts[0][1];
-            } else if (i === pts.length - 1 && pts.length > 1) {
-              dirX = pts[i][0] - pts[i-1][0];
-              dirY = pts[i][1] - pts[i-1][1];
-            } else if (pts.length > 2) {
-              dirX = pts[i+1][0] - pts[i-1][0];
-              dirY = pts[i+1][1] - pts[i-1][1];
-            }
+             // Direction of the segment at this point
+             let dirX = 0, dirY = 0;
+             if (i === 0 && pts.length > 1) {
+               dirX = pts[1][0] - pts[0][0];
+               dirY = pts[1][1] - pts[0][1];
+             } else if (i === pts.length - 1 && pts.length > 1) {
+               dirX = pts[i][0] - pts[i-1][0];
+               dirY = pts[i][1] - pts[i-1][1];
+             } else if (pts.length > 2) {
+               dirX = pts[i+1][0] - pts[i-1][0];
+               dirY = pts[i+1][1] - pts[i-1][1];
+             }
 
-            const segLen = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
-            const perpX = (-dirY / segLen) * (roadWidth / 2);
-            const perpY = (dirX / segLen) * (roadWidth / 2);
+             const segLen = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
+             const perpX = (-dirY / segLen) * (roadWidth / 2);
+             const perpY = (dirX / segLen) * (roadWidth / 2);
 
-            const terrainH = getTerrainHeightAt(armaX, armaY);
+             // Sample terrain at left and right edges so the road tilts with cross-slope
+             const leftArmaX  = armaX + perpX;
+             const leftArmaY  = armaY + perpY;
+             const rightArmaX = armaX - perpX;
+             const rightArmaY = armaY - perpY;
 
-            // Top vertices (road surface)
-            const tLeftX = armaX + perpX - armaCenterX;
-            const tLeftY = armaCenterY - (armaY + perpY); // Three.js Z
-            verts.push(tLeftX, terrainH + heightOffset, tLeftY);
-            uvs.push(0, i / (pts.length - 1));
+             const terrainHLeft  = getTerrainHeightAt(leftArmaX, leftArmaY);
+             const terrainHRight = getTerrainHeightAt(rightArmaX, rightArmaY);
 
-            const tRightX = armaX - perpX - armaCenterX;
-            const tRightY = armaCenterY - (armaY - perpY);
-            verts.push(tRightX, terrainH + heightOffset, tRightY);
-            uvs.push(1, i / (pts.length - 1));
+             // Top vertices (road surface) — each edge at its own sampled height
+             const tLeftX = leftArmaX - armaCenterX;
+             const tLeftY = armaCenterY - leftArmaY;
+             verts.push(tLeftX, terrainHLeft + heightOffset, tLeftY);
+             uvs.push(0, i / (pts.length - 1));
 
-            // Bottom vertices (below road surface for thickness)
-            verts.push(tLeftX, terrainH + heightOffset - roadThickness, tLeftY);
-            uvs.push(0, i / (pts.length - 1));
+             const tRightX = rightArmaX - armaCenterX;
+             const tRightY = armaCenterY - rightArmaY;
+             verts.push(tRightX, terrainHRight + heightOffset, tRightY);
+             uvs.push(1, i / (pts.length - 1));
 
-            verts.push(tRightX, terrainH + heightOffset - roadThickness, tRightY);
-            uvs.push(1, i / (pts.length - 1));
-          }
+             // Bottom vertices (below road surface for thickness)
+             verts.push(tLeftX, terrainHLeft + heightOffset - roadThickness, tLeftY);
+             uvs.push(0, i / (pts.length - 1));
+
+             verts.push(tRightX, terrainHRight + heightOffset - roadThickness, tRightY);
+             uvs.push(1, i / (pts.length - 1));
+           }
 
           // Build indices for quads along the strip (each step = 4 vertices)
           const numPts = pts.length;
@@ -751,6 +758,9 @@ async function render3D() {
             metalness: typeColors.metalness,
             side: THREE.DoubleSide,
             flatShading: true,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
           });
 
           const roadMesh = new THREE.Mesh(mergedGeo, roadMat);
