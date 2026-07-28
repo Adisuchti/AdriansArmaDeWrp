@@ -779,11 +779,20 @@ namespace WrpAnalyzer
                                 using (var pboStream = pboFile.OpenRead()) {
                                     var p3d = StreamHelper.Read<BIS.P3D.P3D>(pboStream);
                                     if (p3d.ODOL != null) {
-                                        var geometryLod = p3d.ODOL.Lods.FirstOrDefault(l => l.Resolution == 1.0e13f);
-                                        if (geometryLod == null) geometryLod = p3d.ODOL.Lods.FirstOrDefault();
+                                        // Pick the highest-detail LOD (most vertices)
+                                        LOD bestLod = null;
+                                        int maxVertices = 0;
+                                        foreach (var lod in p3d.ODOL.Lods)
+                                        {
+                                            if (lod.Vertices != null && lod.Vertices.Count > maxVertices)
+                                            {
+                                                maxVertices = lod.Vertices.Count;
+                                                bestLod = lod;
+                                            }
+                                        }
                                         
-                                        if (geometryLod != null) {
-                                            Voxelizer.ExportToGlb(p3d.ODOL.ModelInfo, geometryLod, glbFilePath);
+                                        if (bestLod != null) {
+                                            Voxelizer.ExportToGlb(p3d.ODOL.ModelInfo, bestLod, glbFilePath);
                                             
                                             lock (processedLock)
                                             {
