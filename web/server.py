@@ -3,7 +3,7 @@ import socketserver
 import os
 import json
 import shutil
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, parse_qs
 
 PORT = 8000
 CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config.json'))
@@ -21,6 +21,7 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
+        query = parse_qs(parsed.query)
 
         # 1. API: List all available maps
         if path == '/api/maps' or path == '/api/maps.json':
@@ -38,9 +39,14 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"maps": maps}).encode())
             return
 
-        # 2. Dynamic Map Assets: /map/Stratis/heightmap.png
+        # 2. Dynamic Map Assets: /map/Stratis/objects_in_region?minX=&maxX=&minY=&maxY=
         if path.startswith('/map/'):
             parts = path.split('/')
+            if len(parts) >= 4 and parts[3] == 'objects_in_region':
+                map_name = parts[2]
+                self._serve_objects_in_region(map_name, query)
+                return
+
             if len(parts) >= 4:
                 map_name = parts[2]
                 file_name = parts[3]
@@ -95,6 +101,82 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
             return
             
         return super().do_GET()
+
+    def _serve_objects_in_region(self, map_name, query):
+        """Stream-filter objects.json by bounding box, returning only objects in the region."""
+        objects_file = os.path.join(EXPORTS_DIR, map_name, 'objects.json')
+        if not os.path.exists(objects_file):
+            self.send_error(404, f"objects.json not found for map {map_name}")
+            return
+
+        try:
+            min_x = float(query.get('minX', [None])[0])
+            max_x = float(query.get('maxX', [None])[0])
+            min_y = float(query.get('minY', [None])[0])
+            max_y = float(query.get('maxY', [None])[0])
+        except (TypeError, ValueError):
+            self.send_error(400, "Missing or invalid query parameters: minX, maxX, minY, maxY required")
+            return
+
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+
+        # Read the entire file and use json.JSONDecoder to parse objects one by one
+        # This handles both indented and minified formats
+        with open(objects_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Find the start of the "objects" array
+        idx = content.find('"objects"')
+        if idx == -1:
+            self.wfile.write(b'{"objects":[]}')
+            return
+
+        # Find the first '[' after "objects"
+        array_start = content.find('[', idx)
+        if array_start == -1:
+            self.wfile.write(b'{"objects":[]}')
+            return
+
+        # Skip past the opening bracket of the array
+        pos = array_start + 1
+
+        decoder = json.JSONDecoder()
+        matching_objects = []
+        MAX_OBJECTS = 100000  # Safety limit
+
+        while pos < len(content) and len(matching_objects) < MAX_OBJECTS:
+            # Skip whitespace and commas
+            while pos < len(content) and content[pos] in ' \t\n\r,':
+                pos += 1
+
+            if pos >= len(content):
+                break
+
+            # Check if we've hit the end of the array
+            if content[pos] == ']':
+                break
+
+            try:
+                obj, end = decoder.raw_decode(content, pos)
+                obj_x = obj.get('x')
+                obj_y = obj.get('y')
+                if obj_x is not None and obj_y is not None:
+                    if min_x <= obj_x <= max_x and min_y <= obj_y <= max_y:
+                        matching_objects.append(json.dumps(obj, separators=(',', ':')))
+                pos = end
+            except json.JSONDecodeError:
+                # Skip malformed entries
+                pos += 1
+
+        # Write response
+        self.wfile.write(b'{"objects":[')
+        for i, obj_json in enumerate(matching_objects):
+            if i > 0:
+                self.wfile.write(b',')
+            self.wfile.write(obj_json.encode('utf-8'))
+        self.wfile.write(b']}')
 
 with socketserver.TCPServer(("", PORT), MapServer) as httpd:
     print(f"Serving UI at http://localhost:{PORT}")

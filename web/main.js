@@ -151,12 +151,11 @@ async function loadMap(mapName) {
     }
     ctx.putImageData(visualData, 0, 0);
 
-    // 3. Load Objects
-    const res = await fetch(`map/${mapName}/objects.json`);
-    const json = await res.json();
-    objectData = json.objects;
+    // 3. No longer loading all objects upfront — they will be fetched per-region in render3D()
+    // Just mark the map as loaded with a dummy array so the selection logic works
+    objectData = []; // placeholder; real data fetched in render3D
 
-    statusText.innerText = `Ready. Size: ${mapSizeMeters}m, Objects: ${objectData.length}`;
+    statusText.innerText = `Ready. Size: ${mapSizeMeters}m. Select a region to render.`;
     if (currentSelection && currentSelection.width > 10 && currentSelection.height > 10) {
       btnRender.disabled = false;
     }
@@ -415,15 +414,29 @@ async function render3D() {
   terrainMesh.receiveShadow = true;
   threeScene.add(terrainMesh);
 
-  // 4. Render Objects
+  // 4. Fetch Objects for this region from the server
   // Center of our Arma world selection box
   const armaCenterX = armaMinX + selMetersWidth / 2;
   const armaCenterY = armaMinY + selMetersHeight / 2;
 
-  const validObjects = objectData.filter(obj =>
-    obj.x >= armaMinX && obj.x <= armaMaxX &&
-    obj.y >= armaMinY && obj.y <= armaMaxY
-  );
+  statusText.innerText = 'Fetching objects for selected region...';
+  let validObjects = [];
+  try {
+    const regionRes = await fetch(
+      `map/${mapSelect.value}/objects_in_region?minX=${armaMinX}&maxX=${armaMaxX}&minY=${armaMinY}&maxY=${armaMaxY}`
+    );
+    if (regionRes.ok) {
+      const regionJson = await regionRes.json();
+      validObjects = regionJson.objects || [];
+    } else {
+      console.warn(`Region API returned ${regionRes.status}, using empty set.`);
+    }
+  } catch (e) {
+    console.error('Failed to fetch objects for region:', e);
+    alert('Failed to load objects for this region. The objects.json file may be too large for the current approach. Try a smaller region.');
+    validObjects = [];
+  }
+  statusText.innerText = `Loaded ${validObjects.length.toLocaleString()} objects in region.`;
 
   statObjects.innerText = validObjects.length.toLocaleString();
 
