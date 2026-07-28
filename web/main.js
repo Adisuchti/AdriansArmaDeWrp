@@ -24,6 +24,7 @@ let maxHeight = 300;
 // State
 let heightmapImage = null;
 let heightmapData = null; // ImageData
+let terrainTextureImage = null; // Image - terrain_class.png
 let isDragging = false;
 let startX, startY;
 let currentSelection = null; // {x, y, w, h} in canvas CSS pixels
@@ -151,7 +152,23 @@ async function loadMap(mapName) {
     }
     ctx.putImageData(visualData, 0, 0);
 
-    // 3. No longer loading all objects upfront — they will be fetched per-region in render3D()
+    // 3. Load terrain class texture (painted onto the 3D terrain)
+    terrainTextureImage = new Image();
+    try {
+      await new Promise((resolve, reject) => {
+        terrainTextureImage.onload = resolve;
+        terrainTextureImage.onerror = () => {
+          console.log("No terrain_class.png for " + mapName + ", falling back to solid colour.");
+          terrainTextureImage = null;
+          resolve(); // don't reject, just skip
+        };
+        terrainTextureImage.src = `map/${mapName}/terrain_class.png`;
+      });
+    } catch (e) {
+      terrainTextureImage = null;
+    }
+
+    // 4. No longer loading all objects upfront — they will be fetched per-region in render3D()
     // Just mark the map as loaded with a dummy array so the selection logic works
     objectData = []; // placeholder; real data fetched in render3D
 
@@ -405,11 +422,42 @@ async function render3D() {
 
   terrainGeo.computeVertexNormals();
 
-  const terrainMat = new THREE.MeshStandardMaterial({
-    color: 0x3f4e4f,
-    roughness: 0.8,
-    flatShading: true
-  });
+  // Terrain material with terrain_class.png texture if available
+  const terrainMatOptions = {
+    roughness: 0.9,
+    metalness: 0.0,
+    flatShading: false
+  };
+
+  if (terrainTextureImage) {
+    const terrainTex = new THREE.CanvasTexture(terrainTextureImage);
+    terrainTex.wrapS = THREE.ClampToEdgeWrapping;
+    terrainTex.wrapT = THREE.ClampToEdgeWrapping;
+    terrainTex.colorSpace = THREE.SRGBColorSpace;
+
+    // Map the texture sub-region to the plane UVs (0→1)
+    terrainTex.repeat.set(
+      selMetersWidth / mapSizeMeters,
+      selMetersHeight / mapSizeMeters
+    );
+    terrainTex.offset.set(
+      armaMinX / mapSizeMeters,
+      armaMinY / mapSizeMeters
+    );
+
+    terrainMatOptions.map = terrainTex;
+    // With texture, don't need a separate color tint
+    terrainMatOptions.color = 0xffffff;
+    statusText.innerText = 'Terrain coloured with classification map.';
+  } else {
+    terrainMatOptions.color = 0x3f4e4f;
+  }
+
+  const terrainMat = new THREE.MeshStandardMaterial(terrainMatOptions);
+  // Store the terrain class texture so the toggle can restore it
+  if (terrainMatOptions.map) {
+    terrainMat.userData._terrainClassTex = terrainMatOptions.map;
+  }
   const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
   terrainMesh.receiveShadow = true;
   threeScene.add(terrainMesh);
@@ -825,6 +873,7 @@ async function render3D() {
   };
 
   const filterModelsOnly = document.getElementById('filter-models-only');
+  const filterTerrainTexture = document.getElementById('filter-terrain-texture');
 
   function updateVisibility() {
     for (const [key, checkbox] of Object.entries(filters)) {
@@ -837,12 +886,26 @@ async function render3D() {
         mesh.visible = isCategoryVisible && !(hideBboxes && mesh.userData.isBoundingBox);
       });
     }
+
+    // Toggle terrain texture on/off
+    if (terrainMat && terrainTextureImage && filterTerrainTexture) {
+      if (filterTerrainTexture.checked) {
+        terrainMat.color.set(0xffffff);
+        terrainMat.map = terrainMat.userData._terrainClassTex || null;
+        terrainMat.needsUpdate = true;
+      } else {
+        terrainMat.color.set(0x3f4e4f);  // old gray
+        terrainMat.map = null;
+        terrainMat.needsUpdate = true;
+      }
+    }
   }
 
   for (const checkbox of Object.values(filters)) {
     if (checkbox) checkbox.addEventListener('change', updateVisibility);
   }
   if (filterModelsOnly) filterModelsOnly.addEventListener('change', updateVisibility);
+  if (filterTerrainTexture) filterTerrainTexture.addEventListener('change', updateVisibility);
 
   // Set initial visibility
   updateVisibility();

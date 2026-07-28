@@ -164,6 +164,56 @@ namespace WrpAnalyzer
                                         }
                                     }
 
+                                    // Extract Primary Texture Index (heightmap resolution: 4096x4096)
+                                    if (oprw.PrimTexIndex != null && oprw.PrimTexIndex.Length > 0)
+                                    {
+                                        using (BinaryWriter bw = new BinaryWriter(File.Open(Path.Combine(mapRawDir, "prim_tex.bin"), FileMode.Create)))
+                                        {
+                                            bw.Write(oprw.PrimTexIndex);
+                                        }
+                                        Console.WriteLine($"Extracted PrimTexIndex ({oprw.PrimTexIndex.Length} bytes).");
+                                    }
+
+                                    // Extract Material Names Table (maps PrimTexIndex bytes to .rvmat paths)
+                                    if (oprw.MatNames != null && oprw.MatNames.Length > 0)
+                                    {
+                                        string matNamesPath = Path.Combine(mapParsedDir, "material_names.json");
+                                        File.WriteAllText(matNamesPath, JsonConvert.SerializeObject(oprw.MatNames, Formatting.Indented));
+                                        Console.WriteLine($"Extracted {oprw.MatNames.Length} material names.");
+                                    }
+
+                                    // Extract Geography quad tree → flat grid of flags (forest/road/water)
+                                    if (oprw.Geography != null)
+                                    {
+                                        using (BinaryWriter bw = new BinaryWriter(File.Open(Path.Combine(mapRawDir, "geography.bin"), FileMode.Create)))
+                                        {
+                                            for (int y = 0; y < matHeight; y++)
+                                                for (int x = 0; x < matWidth; x++)
+                                                    bw.Write((short)oprw.Geography.Get(x, y));
+                                        }
+                                        Console.WriteLine($"Extracted Geography ({matWidth}×{matHeight}).");
+                                    }
+
+                                    // Extract GrassApprox (grass coverage per heightmap cell)
+                                    if (oprw.GrassApprox != null && oprw.GrassApprox.Length > 0)
+                                    {
+                                        using (BinaryWriter bw = new BinaryWriter(File.Open(Path.Combine(mapRawDir, "grass_approx.bin"), FileMode.Create)))
+                                        {
+                                            bw.Write(oprw.GrassApprox);
+                                        }
+                                        Console.WriteLine($"Extracted GrassApprox ({oprw.GrassApprox.Length} bytes).");
+                                    }
+
+                                    // Extract Persistent byte map (landRange resolution)
+                                    if (oprw.Persistent != null && oprw.Persistent.Length > 0)
+                                    {
+                                        using (BinaryWriter bw = new BinaryWriter(File.Open(Path.Combine(mapRawDir, "persistent.bin"), FileMode.Create)))
+                                        {
+                                            bw.Write(oprw.Persistent);
+                                        }
+                                        Console.WriteLine($"Extracted Persistent ({oprw.Persistent.Length} bytes).");
+                                    }
+
                                     if (wrp.Objects != null)
                                     {
                                         string webObjPath = Path.Combine(mapWebDir, "objects.json");
@@ -354,6 +404,19 @@ namespace WrpAnalyzer
                                     string hmGreyPngSource = Path.Combine(mapParsedDir, "heightmap_grey.png");
                                     string hmGreyPngDest = Path.Combine(mapWebDir, "heightmap_grey.png");
                                     if (File.Exists(hmGreyPngSource)) File.Copy(hmGreyPngSource, hmGreyPngDest, true);
+                                    
+                                    // Copy terrain class PNG to web directory
+                                    string terrPngSource = Path.Combine(mapParsedDir, "terrain_class.png");
+                                    string terrPngDest = Path.Combine(mapWebDir, "terrain_class.png");
+                                    if (File.Exists(terrPngSource)) File.Copy(terrPngSource, terrPngDest, true);
+                                    
+                                    string terrJpgSource = Path.Combine(mapParsedDir, "terrain_class.jpg");
+                                    string terrJpgDest = Path.Combine(mapWebDir, "terrain_class.jpg");
+                                    if (File.Exists(terrJpgSource)) File.Copy(terrJpgSource, terrJpgDest, true);
+                                    
+                                    string legendSource = Path.Combine(mapParsedDir, "terrain_class_legend.txt");
+                                    string legendDest = Path.Combine(mapWebDir, "terrain_class_legend.txt");
+                                    if (File.Exists(legendSource)) File.Copy(legendSource, legendDest, true);
                                     
                                     // Generate roads.png from roadnet.json
                                     string renderRoadsScript = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "render_roads.py");
