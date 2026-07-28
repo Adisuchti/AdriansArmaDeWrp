@@ -222,6 +222,115 @@ namespace WrpAnalyzer
                                         File.Copy(webObjPath, parsedObjPath, true);
                                     }
                                     
+                                    // Extract Shapefile-based roads from data PBOs if present
+                                    try
+                                    {
+                                        ExtractRoads(mapName, pboFiles, mapRawDir);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Console.WriteLine($"Warning: Failed to extract shapefile roads: {ex.Message}");
+                                    }
+                                    
+                                    // 4. Export Road Network from the full OPRW Roadnet grid
+                                    if (oprw.Roadnet != null)
+                                    {
+                                        Console.WriteLine("Extracting road network...");
+                                        string roadnetPath = Path.Combine(mapParsedDir, "roadnet.json");
+                                        int totalLinks = 0;
+                                        
+                                        using (StreamWriter sw = new StreamWriter(File.Open(roadnetPath, FileMode.Create), new UTF8Encoding(false)))
+                                        {
+                                            sw.Write("{\"mapSize\":");
+                                            sw.Write(mapSize.ToString(CultureInfo.InvariantCulture));
+                                            sw.Write(",\"cellSize\":");
+                                            sw.Write(cellSize.ToString(CultureInfo.InvariantCulture));
+                                            sw.Write(",\"gridW\":");
+                                            sw.Write(matWidth.ToString());
+                                            sw.Write(",\"gridH\":");
+                                            sw.Write(matHeight.ToString());
+                                            sw.Write(",\"roads\":[");
+                                            
+                                            bool firstLink = true;
+                                            for (int cellIdx = 0; cellIdx < oprw.Roadnet.Length; cellIdx++)
+                                            {
+                                                var cellLinks = oprw.Roadnet[cellIdx];
+                                                if (cellLinks == null || cellLinks.Length == 0) continue;
+                                                
+                                                foreach (var link in cellLinks)
+                                                {
+                                                    if (link == null) continue;
+                                                    
+                                                    // Classify road type based on P3D path
+                                                    string roadType = "road";
+                                                    string p3d = link.P3dPath ?? "";
+                                                    string p3dLower = p3d.ToLowerInvariant();
+                                                    
+                                                    if (p3dLower.Contains("highway") || p3dLower.Contains("main_road") || p3dLower.Contains("mainroad"))
+                                                        roadType = "mainRoad";
+                                                    else if (p3dLower.Contains("dirt") || p3dLower.Contains("track") || p3dLower.Contains("path") || p3dLower.Contains("gravel"))
+                                                        roadType = "track";
+                                                    else if (p3dLower.Contains("bridge"))
+                                                        roadType = "mainRoad";
+                                                    
+                                                    if (!firstLink) sw.Write(",");
+                                                    firstLink = false;
+                                                    
+                                                    sw.Write("{\"p3d\":\"");
+                                                    sw.Write(p3d.Replace("\\", "\\\\"));
+                                                    sw.Write("\",\"type\":\"");
+                                                    sw.Write(roadType);
+                                                    sw.Write("\",\"conns\":");
+                                                    sw.Write(link.ConnectionCount.ToString());
+                                                    
+                                                    // Transform position (world coordinates)
+                                                    if (link.ToWorld != null)
+                                                    {
+                                                        sw.Write(",\"tx\":");
+                                                        sw.Write(link.ToWorld.TranslateX.ToString(CultureInfo.InvariantCulture));
+                                                        sw.Write(",\"ty\":");
+                                                        sw.Write(link.ToWorld.TranslateZ.ToString(CultureInfo.InvariantCulture));
+                                                    }
+                                                    
+                                                    // Connection endpoint positions
+                                                    if (link.Positions != null && link.Positions.Length > 0)
+                                                    {
+                                                        sw.Write(",\"pts\":[");
+                                                        for (int p = 0; p < link.Positions.Length; p++)
+                                                        {
+                                                            if (p > 0) sw.Write(",");
+                                                            sw.Write("[");
+                                                            sw.Write(link.Positions[p].X.ToString(CultureInfo.InvariantCulture));
+                                                            sw.Write(",");
+                                                            sw.Write(link.Positions[p].Z.ToString(CultureInfo.InvariantCulture));
+                                                            sw.Write("]");
+                                                        }
+                                                        sw.Write("]");
+                                                    }
+                                                    
+                                                    // Connection types (v24+)
+                                                    if (link.ConnectionTypes != null && link.ConnectionTypes.Length > 0)
+                                                    {
+                                                        sw.Write(",\"ctypes\":[");
+                                                        for (int ct = 0; ct < link.ConnectionTypes.Length; ct++)
+                                                        {
+                                                            if (ct > 0) sw.Write(",");
+                                                            sw.Write(link.ConnectionTypes[ct].ToString());
+                                                        }
+                                                        sw.Write("]");
+                                                    }
+                                                    
+                                                    sw.Write("}");
+                                                    totalLinks++;
+                                                }
+                                            }
+                                            
+                                            sw.Write("]}");
+                                        }
+                                        Console.WriteLine($"Exported {totalLinks} road links to roadnet.json.");
+                                        File.Copy(roadnetPath, Path.Combine(mapWebDir, "roadnet.json"), true);
+                                    }
+                                    
                                     Console.WriteLine("Generating PNGs via python...");
                                     string mapBaseDir = Path.Combine(baseRawDir, mapName);
                                     ProcessStartInfo psi = new ProcessStartInfo
@@ -237,6 +346,23 @@ namespace WrpAnalyzer
                                     string hmPngSource = Path.Combine(mapParsedDir, "heightmap.png");
                                     string hmPngDest = Path.Combine(mapWebDir, "heightmap.png");
                                     if (File.Exists(hmPngSource)) File.Copy(hmPngSource, hmPngDest, true);
+                                    
+                                    // Generate roads.png from roadnet.json
+                                    string renderRoadsScript = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "render_roads.py");
+                                    string roadnetJsonPath = Path.Combine(mapParsedDir, "roadnet.json");
+                                    if (File.Exists(renderRoadsScript) && File.Exists(roadnetJsonPath))
+                                    {
+                                        Console.WriteLine("Rendering roads.png...");
+                                        ProcessStartInfo roadsPsi = new ProcessStartInfo
+                                        {
+                                            FileName = "python",
+                                            Arguments = $"\"{renderRoadsScript}\" \"{roadnetJsonPath}\" \"{mapParsedDir}\" \"{mapWebDir}\"",
+                                            UseShellExecute = false,
+                                            RedirectStandardOutput = true,
+                                            CreateNoWindow = true
+                                        };
+                                        using (var roadProcess = Process.Start(roadsPsi)) { roadProcess.WaitForExit(); }
+                                    }
                                     
                                     Console.WriteLine($"Finished {mapName} successfully.");
                                 }
@@ -652,6 +778,50 @@ namespace WrpAnalyzer
                 }
             }
             Console.WriteLine($"\nVoxelization complete! Generated {processed} new models for {mapName}.");
+        }
+        static void ExtractRoads(string mapName, string[] pboFiles, string rawDir)
+        {
+            Console.WriteLine($"Searching for shapefile roads for {mapName}...");
+            foreach (var pboPath in pboFiles)
+            {
+                string pboName = Path.GetFileNameWithoutExtension(pboPath).ToLowerInvariant();
+                if (!pboName.Contains(mapName.ToLowerInvariant())) continue;
+
+                try
+                {
+                    using (var pbo = new PBO(pboPath))
+                    {
+                        var shpFile = pbo.Files.FirstOrDefault(f => f.FileName.EndsWith("roads.shp", StringComparison.OrdinalIgnoreCase));
+                        if (shpFile != null)
+                        {
+                            string roadsDir = Path.GetDirectoryName(shpFile.FileName) ?? "";
+                            string roadsRawDest = Path.Combine(rawDir, "roads");
+                            Directory.CreateDirectory(roadsRawDest);
+                            
+                            foreach (var file in pbo.Files)
+                            {
+                                string fileDir = Path.GetDirectoryName(file.FileName) ?? "";
+                                if (fileDir.Equals(roadsDir, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    string ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                                    if (ext == ".shp" || ext == ".dbf" || ext == ".shx" || ext == ".cfg" || ext == ".bin")
+                                    {
+                                        string destPath = Path.Combine(roadsRawDest, Path.GetFileName(file.FileName));
+                                        using (var srcStream = file.OpenRead())
+                                        using (var destStream = File.OpenWrite(destPath))
+                                        {
+                                            srcStream.CopyTo(destStream);
+                                        }
+                                        Console.WriteLine($"Extracted road file: {Path.GetFileName(file.FileName)} from {Path.GetFileName(pboPath)}");
+                                    }
+                                }
+                            }
+                            break; // Found roads for this map
+                        }
+                    }
+                }
+                catch { }
+            }
         }
     }
 }
