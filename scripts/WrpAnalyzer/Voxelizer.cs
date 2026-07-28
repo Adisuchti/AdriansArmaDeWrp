@@ -134,6 +134,67 @@ namespace WrpAnalyzer
                 }
             }
             
+            // ---- 3D flood-fill to find exterior-empty cells (reachable from outside) ----
+            int minVX = int.MaxValue, maxVX = int.MinValue;
+            int minVY = int.MaxValue, maxVY = int.MinValue;
+            int minVZ = int.MaxValue, maxVZ = int.MinValue;
+            if (occupiedVoxels.Count > 0)
+            {
+                foreach (var (vx, vy, vz) in occupiedVoxels)
+                {
+                    if (vx < minVX) minVX = vx;
+                    if (vx > maxVX) maxVX = vx;
+                    if (vy < minVY) minVY = vy;
+                    if (vy > maxVY) maxVY = vy;
+                    if (vz < minVZ) minVZ = vz;
+                    if (vz > maxVZ) maxVZ = vz;
+                }
+            }
+            // Expand bounding box by 1 in all directions to ensure the exterior fully surrounds the model
+            minVX--; minVY--; minVZ--;
+            maxVX++; maxVY++; maxVZ++;
+            
+            var exteriorEmpty = new HashSet<(int, int, int)>();
+            var floodQueue = new Queue<(int, int, int)>();
+            
+            // Seed with all empty cells on the boundary faces of the expanded bounding box
+            for (int x = minVX; x <= maxVX; x++)
+            {
+                for (int y = minVY; y <= maxVY; y++)
+                {
+                    for (int z = minVZ; z <= maxVZ; z++)
+                    {
+                        bool onBoundary = (x == minVX || x == maxVX || y == minVY || y == maxVY || z == minVZ || z == maxVZ);
+                        if (!onBoundary) continue;
+                        var cell = (x, y, z);
+                        if (!occupiedVoxels.Contains(cell) && !exteriorEmpty.Contains(cell))
+                        {
+                            exteriorEmpty.Add(cell);
+                            floodQueue.Enqueue(cell);
+                        }
+                    }
+                }
+            }
+            
+            // BFS from boundary to find all empty cells reachable from outside
+            while (floodQueue.Count > 0)
+            {
+                var cur = floodQueue.Dequeue();
+                for (int fi = 0; fi < 6; fi++)
+                {
+                    var off = NeighborOffsets[fi];
+                    var neighbor = (cur.Item1 + off.dx, cur.Item2 + off.dy, cur.Item3 + off.dz);
+                    if (neighbor.Item1 < minVX || neighbor.Item1 > maxVX ||
+                        neighbor.Item2 < minVY || neighbor.Item2 > maxVY ||
+                        neighbor.Item3 < minVZ || neighbor.Item3 > maxVZ)
+                        continue;
+                    if (occupiedVoxels.Contains(neighbor)) continue;
+                    if (exteriorEmpty.Contains(neighbor)) continue;
+                    exteriorEmpty.Add(neighbor);
+                    floodQueue.Enqueue(neighbor);
+                }
+            }
+            
             // ---- Greedy mesh building with face culling and vertex deduplication ----
             var material = new MaterialBuilder("VoxelMat")
                 .WithBaseColor(new Vector4(0.5f, 0.5f, 0.5f, 1.0f))
@@ -172,8 +233,10 @@ namespace WrpAnalyzer
                     int ny = voxel.Item2 + offset.dy;
                     int nz = voxel.Item3 + offset.dz;
                     
-                    // Face culling: skip if neighbor occupied
+                    // Face culling: skip if neighbor is occupied or not exterior (interior cavity)
                     if (occupiedVoxels.Contains((nx, ny, nz)))
+                        continue;
+                    if (!exteriorEmpty.Contains((nx, ny, nz)))
                         continue;
                     
                     var layout = FaceLayout[fi];

@@ -350,6 +350,10 @@ namespace WrpAnalyzer
                                     string hmPngDest = Path.Combine(mapWebDir, "heightmap.png");
                                     if (File.Exists(hmPngSource)) File.Copy(hmPngSource, hmPngDest, true);
                                     
+                                    string hmGreyPngSource = Path.Combine(mapParsedDir, "heightmap_grey.png");
+                                    string hmGreyPngDest = Path.Combine(mapWebDir, "heightmap_grey.png");
+                                    if (File.Exists(hmGreyPngSource)) File.Copy(hmGreyPngSource, hmGreyPngDest, true);
+                                    
                                     // Generate roads.png from roadnet.json
                                     string renderRoadsScript = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "render_roads.py");
                                     string roadnetJsonPath = Path.Combine(mapParsedDir, "roadnet.json");

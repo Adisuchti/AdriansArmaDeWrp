@@ -35,6 +35,30 @@ def convert_heightmap(base_dir, width, height):
     img.save(png_path)
     print(f"Saved {png_path}")
 
+def convert_heightmap_grayscale(base_dir, width, height):
+    bin_path = os.path.join(base_dir, "raw", "heightmap.bin")
+    if not os.path.exists(bin_path):
+        return
+        
+    png_path = os.path.join(base_dir, "parsed", "heightmap_grey.png")
+    
+    with open(bin_path, "rb") as f:
+        floats = struct.unpack(f"<{width*height}f", f.read())
+        
+    min_h = min(floats)
+    max_h = max(floats)
+    span = max_h - min_h if max_h > min_h else 1.0
+    
+    pixels = bytearray(width * height)
+    for i, val in enumerate(floats):
+        norm = (val - min_h) / span
+        pixels[i] = int(norm * 255)
+    
+    img = Image.frombytes('L', (width, height), bytes(pixels))
+    img = img.transpose(Image.FLIP_TOP_BOTTOM)
+    img.save(png_path)
+    print(f"Saved {png_path}")
+
 def convert_material_mask(base_dir, width, height):
     bin_path = os.path.join(base_dir, "raw", "material_mask.bin")
     if not os.path.exists(bin_path):
@@ -163,6 +187,7 @@ if __name__ == "__main__":
     mat_w, mat_h = int(sys.argv[4]), int(sys.argv[5])
     
     convert_heightmap(base_dir, hm_w, hm_h)
+    convert_heightmap_grayscale(base_dir, hm_w, hm_h)
     convert_material_mask(base_dir, mat_w, mat_h)
     
     # New extractions
