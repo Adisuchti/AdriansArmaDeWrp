@@ -409,18 +409,22 @@ namespace WrpAnalyzer
                                     string hmGreyPngDest = Path.Combine(mapWebDir, "heightmap_grey.png");
                                     if (File.Exists(hmGreyPngSource)) File.Copy(hmGreyPngSource, hmGreyPngDest, true);
                                     
-                                    // Copy terrain class PNG to web directory
-                                    string terrPngSource = Path.Combine(mapParsedDir, "terrain_class.png");
-                                    string terrPngDest = Path.Combine(mapWebDir, "terrain_class.png");
-                                    if (File.Exists(terrPngSource)) File.Copy(terrPngSource, terrPngDest, true);
-                                    
-                                    string terrJpgSource = Path.Combine(mapParsedDir, "terrain_class.jpg");
-                                    string terrJpgDest = Path.Combine(mapWebDir, "terrain_class.jpg");
-                                    if (File.Exists(terrJpgSource)) File.Copy(terrJpgSource, terrJpgDest, true);
-                                    
-                                    string legendSource = Path.Combine(mapParsedDir, "terrain_class_legend.txt");
-                                    string legendDest = Path.Combine(mapWebDir, "terrain_class_legend.txt");
-                                    if (File.Exists(legendSource)) File.Copy(legendSource, legendDest, true);
+                                    // Copy lossless geography and prim_tex and legends to web directory
+                                    string geoPngSource = Path.Combine(mapParsedDir, "geography.png");
+                                    string geoPngDest = Path.Combine(mapWebDir, "geography.png");
+                                    if (File.Exists(geoPngSource)) File.Copy(geoPngSource, geoPngDest, true);
+
+                                    string geoLegSource = Path.Combine(mapParsedDir, "geography_legend.json");
+                                    string geoLegDest = Path.Combine(mapWebDir, "geography_legend.json");
+                                    if (File.Exists(geoLegSource)) File.Copy(geoLegSource, geoLegDest, true);
+
+                                    string primPngSource = Path.Combine(mapParsedDir, "prim_tex.png");
+                                    string primPngDest = Path.Combine(mapWebDir, "prim_tex.png");
+                                    if (File.Exists(primPngSource)) File.Copy(primPngSource, primPngDest, true);
+
+                                    string primLegSource = Path.Combine(mapParsedDir, "prim_tex_legend.json");
+                                    string primLegDest = Path.Combine(mapWebDir, "prim_tex_legend.json");
+                                    if (File.Exists(primLegSource)) File.Copy(primLegSource, primLegDest, true);
                                     
                                     // Generate roads.png from roadnet.json
                                     string renderRoadsScript = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "render_roads.py");
