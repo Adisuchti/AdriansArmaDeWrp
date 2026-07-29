@@ -1138,6 +1138,11 @@ async function render3D() {
     window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
 
     isRendering = false;
+    const btnFps = document.getElementById('btn-fps');
+    if (btnFps) {
+      btnFps.style.background = '';
+      btnFps.innerText = 'First Person (1.7m)';
+    }
     view3d.classList.add('hidden');
     view2d.classList.remove('hidden');
     document.getElementById('object-info-panel').classList.add('hidden');
@@ -1149,6 +1154,16 @@ async function render3D() {
   };
 
   // Interaction / Selection
+  let isFpsPlacementMode = false;
+  const btnFps = document.getElementById('btn-fps');
+  if (btnFps) {
+    btnFps.onclick = () => {
+      isFpsPlacementMode = !isFpsPlacementMode;
+      btnFps.style.background = isFpsPlacementMode ? 'rgba(56, 189, 248, 0.5)' : '';
+      btnFps.innerText = isFpsPlacementMode ? 'Cancel First Person' : 'First Person (1.7m)';
+    };
+  }
+
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
   const highlightMat = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true, depthTest: false });
@@ -1163,6 +1178,25 @@ async function render3D() {
     mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(mouse, threeCamera);
+
+    if (isFpsPlacementMode) {
+      const terrainIntersects = raycaster.intersectObject(terrainMesh);
+      if (terrainIntersects.length > 0) {
+        const hit = terrainIntersects[0].point;
+        threeCamera.position.set(hit.x, hit.y + 1.7, hit.z);
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(threeCamera.quaternion);
+        threeControls.target.set(hit.x + dir.x * 0.1, hit.y + 1.7 + dir.y * 0.1, hit.z + dir.z * 0.1);
+        threeControls.maxPolarAngle = Math.PI; // Allow looking up
+        threeControls.update();
+        
+        isFpsPlacementMode = false;
+        if (btnFps) {
+          btnFps.style.background = '';
+          btnFps.innerText = 'First Person (1.7m)';
+        }
+      }
+      return;
+    }
 
     // Calculate objects intersecting the picking ray
     const intersects = raycaster.intersectObjects(allInstancedMeshes, false);
