@@ -33,6 +33,9 @@ let classificationData = {}; // parsed classification lookup
 let threeScene, threeCamera, threeRenderer, threeControls;
 
 const mapSelect = document.getElementById('map-select');
+const missionSelect = document.getElementById('mission-select');
+
+let currentMissionData = null; // { meta, entities }
 
 // Initialization
 async function init() {
@@ -83,6 +86,32 @@ async function init() {
       urlParams.delete('h');
       window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
       loadMap(mapSelect.value);
+    });
+
+    // Populate missions dropdown
+    try {
+      const missionRes = await fetch('api/missions.json');
+      if (missionRes.ok) {
+        const missionData = await missionRes.json();
+        missionSelect.innerHTML = '<option value="">None</option>';
+        (missionData.missions || []).forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.name;
+          opt.innerText = `${m.name.replace('_SQM', '')} (${m.entity_count} entities)`;
+          if (m.map_name) opt.innerText += ` - ${m.map_name}`;
+          missionSelect.appendChild(opt);
+        });
+      }
+    } catch (e) {
+      console.warn('Could not load missions', e);
+    }
+
+    missionSelect.addEventListener('change', () => {
+      if (missionSelect.value) {
+        loadMission(missionSelect.value);
+      } else {
+        currentMissionData = null;
+      }
     });
 
     // Load the first map
@@ -862,7 +891,195 @@ async function render3D() {
     console.error('Failed to fetch roads for region:', e);
   }
 
-  // 6. Connect UI Filters
+  // 6. Render Mission Entities (if a mission is selected)
+  if (currentMissionData && currentMissionData.entities) {
+    const sideColors = {
+      'West': 0x3388ff,
+      'Blufor': 0x3388ff,
+      'East': 0xff3333,
+      'Opfor': 0xff3333,
+      'Independent': 0x33cc33,
+      'Resistance': 0x33cc33,
+      'Civilian': 0xcc88ff,
+      'Empty': 0x888888,
+      'Unknown': 0xffffff
+    };
+
+    // Character type pattern: infantry/crew/pilots only — NOT vehicles ending with _F
+    const isCharacter = (type) => {
+      const t = type || '';
+      // Explicit soldier/crew/pilot patterns
+      if (/^(B_|O_|I_|C_)(Soldier|medic|crew|Helipilot|helicrew|Fighter_Pilot|Pilot)/i.test(t)) return true;
+      // Specific role suffixes for soldiers
+      if (/_(SL|TL|AR|LAT|AT|AA|M|Grenadier|Sharpshooter|Marksman|Engineer|Sniper|Spotter|Recon|Scout|Survivor|Story|CombatLifeSaver|Repair|Explosive|UAV|JTAC|HeliCrew)_F$/i.test(t)) return true;
+      // Generic soldier/medic/crew/pilot suffixes
+      if (/_(Soldier|medic|crew|Pilot|Helipilot|helicrew|fighter_Pilot)_F$/i.test(t)) return true;
+      return false;
+    };
+
+    // Filter mission entities to region
+    const missionEntities = currentMissionData.entities.filter(e => {
+      const ex = e.x || 0;
+      const ez = e.z || 0;
+      return ex >= armaMinX && ex <= armaMaxX && ez >= armaMinY && ez <= armaMaxY;
+    });
+
+    const characterModelName = 'characters_f_templatertm_male.glb';
+    let characterGlbGeo = null;
+    let characterGlbMat = null;
+
+    // Try load the character template model
+    try {
+      const charGltf = await gltfLoader.loadAsync(`models/${characterModelName}`);
+      charGltf.scene.traverse((child) => {
+        if (child.isMesh && !characterGlbGeo) {
+          characterGlbGeo = child.geometry;
+          characterGlbMat = new THREE.MeshStandardMaterial({
+            color: 0x3388ff,
+            roughness: 0.5,
+            metalness: 0.2,
+            flatShading: true
+          });
+        }
+      });
+      if (characterGlbGeo) {
+        console.log('Loaded character template model for mission units.');
+      }
+    } catch (e) {
+      console.warn('Character template model not available, using spheres:', e.message);
+    }
+
+    // Pre-load GLB model cache for mission entity types
+    const missionModelCache = {};
+    if (characterGlbGeo) {
+      missionModelCache['CHARACTER'] = { geo: characterGlbGeo, mat: characterGlbMat };
+    }
+
+    // Load class_to_glb.json for correct model filenames
+    let classToGlb = {};
+    try {
+      const glbRes = await fetch(`mission/${missionSelect.value}/class_to_glb.json`);
+      if (glbRes.ok) classToGlb = await glbRes.json();
+    } catch (e) {}
+
+    // Try to load GLB models for each unique non-character type
+    const uniqueTypes = [...new Set(missionEntities.map(e => e.type || 'Unknown'))];
+    const loadPromises = uniqueTypes.map(async (type) => {
+      if (isCharacter(type)) return; // Already handled
+      // Use the mapping if available, otherwise fall back to lowercased type
+      const glbName = classToGlb[type] || (type.toLowerCase() + '.glb');
+      try {
+        const gltf = await gltfLoader.loadAsync(`models/${glbName}`);
+        let loadedGeo = null;
+        gltf.scene.traverse((child) => {
+          if (child.isMesh && !loadedGeo) loadedGeo = child.geometry;
+        });
+        if (loadedGeo) {
+          missionModelCache[type] = { geo: loadedGeo, mat: new THREE.MeshStandardMaterial({
+            color: sideColors['Empty'],
+            roughness: 0.5,
+            metalness: 0.2,
+            flatShading: true
+          })};
+          console.log(`Loaded GLB model for mission entity: ${type}`);
+        }
+      } catch (e) {
+        // GLB not available, will use fallback shapes
+      }
+    });
+    await Promise.all(loadPromises);
+
+    // Group by type for instanced rendering
+    const missionByType = {};
+    missionEntities.forEach(e => {
+      const type = e.type || 'Unknown';
+      const modelKey = isCharacter(type) ? 'CHARACTER' : type;
+      if (!missionByType[modelKey]) {
+        missionByType[modelKey] = [];
+      }
+      missionByType[modelKey].push(e);
+    });
+
+    const sphereGeo = new THREE.SphereGeometry(2, 8, 8);
+    const smallBoxGeo = new THREE.BoxGeometry(3, 3, 3);
+
+    for (const [modelKey, entities] of Object.entries(missionByType)) {
+      const side = entities[0]?.side || 'Empty';
+      const type = entities[0]?.type || modelKey;
+      const color = sideColors[side] || sideColors['Empty'];
+      const isChar = isCharacter(type);
+      
+      let geo, mat, modelLoaded = false, usedModelName = null;
+
+      // Check if we have a cached GLB model for this type
+      if (missionModelCache[modelKey]) {
+        const cached = missionModelCache[modelKey];
+        geo = cached.geo;
+        mat = cached.mat.clone();
+        mat.color.set(color);
+        mat.emissive = new THREE.Color(color);
+        mat.emissiveIntensity = 0.3;
+        modelLoaded = true;
+        usedModelName = isChar ? 'characters_f_templateRTM_Male.glb' : `${type}.glb`;
+      } else {
+        // Fallback shapes
+        const isVehicle = type.includes('Heli_') || type.includes('MBT_') || type.includes('Plane_') 
+          || type.includes('Tank') || type.includes('Car') || type.includes('Transport')
+          || type.includes('Warfare') || type.includes('Radar') || type.includes('Crate');
+        geo = isVehicle ? smallBoxGeo : sphereGeo;
+        mat = new THREE.MeshStandardMaterial({
+          color: color,
+          roughness: 0.5,
+          metalness: 0.3,
+          emissive: color,
+          emissiveIntensity: 0.4
+        });
+      }
+
+      const count = entities.length;
+      const instancedMesh = new THREE.InstancedMesh(geo, mat, count);
+      instancedMesh.castShadow = true;
+      instancedMesh.receiveShadow = true;
+
+      const dummyMission = new THREE.Object3D();
+      entities.forEach((entity, index) => {
+        const posX = entity.x - armaCenterX;
+        const posZ = -(entity.z - armaCenterY);
+        const terrainH = getTerrainHeightAt(entity.x, entity.z);
+        const posY = Math.max(entity.y || terrainH, terrainH) + (isChar && modelLoaded ? 0.0 : 2.0);
+
+        dummyMission.position.set(posX, posY, posZ);
+        dummyMission.scale.set(1, 1, 1);
+        if (entity.azimuth) {
+          // SQM azimuth is already in radians; negate for Three.js Y rotation direction
+          dummyMission.rotation.set(0, -(entity.azimuth), 0, 'YXZ');
+        } else {
+          dummyMission.rotation.set(0, 0, 0);
+        }
+        dummyMission.updateMatrix();
+        instancedMesh.setMatrixAt(index, dummyMission.matrix);
+      });
+
+      instancedMesh.instanceMatrix.needsUpdate = true;
+      instancedMesh.userData.isMissionEntity = true;
+      instancedMesh.userData.entityType = type;
+      instancedMesh.userData.entitySide = side;
+      instancedMesh.userData.entityModelName = usedModelName || `${type}.glb`;
+      instancedMesh.userData.missionObjects = entities;
+      instancedMesh.userData.isBoundingBox = !modelLoaded;
+      threeScene.add(instancedMesh);
+
+      if (!categoryMeshes['buildings']) categoryMeshes['buildings'] = [];
+      categoryMeshes['buildings'].push(instancedMesh);
+      allInstancedMeshes.push(instancedMesh);
+    }
+
+    const missionCount = missionEntities.length;
+    statObjects.innerText = `${validObjects.length + missionCount} (${missionCount} mission)`;
+    statusText.innerText = `Loaded ${validObjects.length.toLocaleString()} map objects + ${missionCount} mission entities.`;
+  }
+
+  // 7. Connect UI Filters
   const filters = {
     buildings: document.getElementById('filter-buildings'),
     nature: document.getElementById('filter-nature'),
@@ -954,11 +1171,20 @@ async function render3D() {
       // Find the first visible intersection
       const hit = intersects.find(i => i.object.visible);
       if (hit && hit.instanceId !== undefined) {
-        const objData = hit.object.userData.objects[hit.instanceId];
-
-        document.getElementById('object-info-panel').classList.remove('hidden');
-        document.getElementById('info-class').innerText = objData.class || "Unknown";
-        document.getElementById('info-model').innerText = objData.model || "Unknown";
+        // Check if it's a mission entity
+        if (hit.object.userData.isMissionEntity) {
+          const missionData = hit.object.userData.missionObjects[hit.instanceId];
+          document.getElementById('object-info-panel').classList.remove('hidden');
+          document.getElementById('info-class').innerText = missionData.type || "Unknown";
+          // Show the model name that was used for this entity type
+          const modelName = hit.object.userData.entityModelName || `${missionData.type}.p3d`;
+          document.getElementById('info-model').innerText = `${missionData.side || ''} | Model: ${modelName}`;
+        } else {
+          const objData = hit.object.userData.objects[hit.instanceId];
+          document.getElementById('object-info-panel').classList.remove('hidden');
+          document.getElementById('info-class').innerText = objData.class || "Unknown";
+          document.getElementById('info-model').innerText = objData.model || "Unknown";
+        }
 
         // Apply geometry and transform to highlightMesh
         highlightMesh.geometry = hit.object.geometry;
@@ -982,6 +1208,40 @@ async function render3D() {
   
   // Hide loading screen when done setting up
   document.getElementById('loading-overlay').classList.add('hidden');
+}
+
+async function loadMission(missionName) {
+  statusText.innerText = `Loading mission ${missionName}...`;
+  try {
+    const metaRes = await fetch(`mission/${missionName}/meta.json`);
+    const entitiesRes = await fetch(`mission/${missionName}/entities.json`);
+    
+    if (metaRes.ok && entitiesRes.ok) {
+      const meta = await metaRes.json();
+      const entities = await entitiesRes.json();
+      currentMissionData = { meta, entities };
+      
+      statusText.innerText = `Mission loaded: ${meta.name || missionName} - ${entities.length} entities.`;
+      
+      // Auto-select matching map if available
+      if (meta.map_name) {
+        const mapOptions = mapSelect.options;
+        for (let i = 0; i < mapOptions.length; i++) {
+          if (mapOptions[i].text.toLowerCase().includes(meta.map_name.toLowerCase())) {
+            mapSelect.value = mapOptions[i].value;
+            loadMap(mapOptions[i].value);
+            break;
+          }
+        }
+      }
+    } else {
+      currentMissionData = null;
+      statusText.innerText = `Failed to load mission data.`;
+    }
+  } catch (e) {
+    console.error('Error loading mission:', e);
+    currentMissionData = null;
+  }
 }
 
 // Start

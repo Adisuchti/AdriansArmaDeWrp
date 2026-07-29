@@ -50,6 +50,10 @@ namespace WrpAnalyzer
             {
                 CalcAllDims(args[1], args[2]);
             }
+            else if (command == "calc_models" && args.Length >= 4)
+            {
+                CalcModels(args[1], args[2], args[3]);
+            }
             else
             {
                 PrintUsage();
@@ -876,6 +880,128 @@ namespace WrpAnalyzer
             
             Console.WriteLine($"\nVoxelization complete! Generated {processed} new models for {mapName}.");
         }
+        static void CalcModels(string armaDir, string baseWebDir, string modelListFile)
+        {
+            if (!File.Exists(modelListFile))
+            {
+                Console.WriteLine($"Error: Model list file not found: {modelListFile}");
+                return;
+            }
+
+            // Read the list of model filenames
+            var neededModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in File.ReadAllLines(modelListFile))
+            {
+                var model = line.Trim();
+                if (!string.IsNullOrEmpty(model) && !model.StartsWith("#"))
+                {
+                    neededModels.Add(model);
+                }
+            }
+            Console.WriteLine($"Targeted processing: {neededModels.Count} models from list.");
+
+            string modelsWebDir = Path.Combine(baseWebDir, "models");
+            Directory.CreateDirectory(modelsWebDir);
+
+            var p3dToPboMap = IndexPbos(armaDir);
+            var modelDimensions = new Dictionary<string, (float w, float l, float h)>(StringComparer.OrdinalIgnoreCase);
+            
+            int processed = 0;
+            int skipped = 0;
+            Console.WriteLine("Calculating dimensions and voxelizing only specified models...");
+            
+            foreach (var modelBaseName in neededModels)
+            {
+                float width = 1f, length = 1f, height = 1f;
+                bool found = false;
+
+                if (p3dToPboMap.TryGetValue(modelBaseName, out string pboModelPath))
+                {
+                    try {
+                        using (var modelPbo = new PBO(pboModelPath)) {
+                            var pboFile = modelPbo.Files.FirstOrDefault(f => f.FileName.EndsWith(modelBaseName, StringComparison.OrdinalIgnoreCase));
+                            if (pboFile != null) {
+                                using (var pboStream = pboFile.OpenRead()) {
+                                    var p3d = StreamHelper.Read<BIS.P3D.P3D>(pboStream);
+                                    if (p3d.ODOL != null) {
+                                        found = true;
+                                        var geometryLod = p3d.ODOL.Lods.FirstOrDefault(l => l.Resolution == 1.0e13f);
+                                        if (geometryLod == null) geometryLod = p3d.ODOL.Lods.FirstOrDefault();
+
+                                        if (geometryLod != null && geometryLod.Vertices != null && geometryLod.Vertices.Count > 0)
+                                        {
+                                            float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+                                            float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+                                            
+                                            foreach (var v in geometryLod.Vertices)
+                                            {
+                                                if (v.X < minX) minX = v.X;
+                                                if (v.X > maxX) maxX = v.X;
+                                                if (v.Y < minY) minY = v.Y;
+                                                if (v.Y > maxY) maxY = v.Y;
+                                                if (v.Z < minZ) minZ = v.Z;
+                                                if (v.Z > maxZ) maxZ = v.Z;
+                                            }
+                                            
+                                            width = maxX - minX;
+                                            height = maxY - minY;
+                                            length = maxZ - minZ;
+                                        }
+                                        else 
+                                        {
+                                            width = p3d.ODOL.ModelInfo.BboxMax.X - p3d.ODOL.ModelInfo.BboxMin.X;
+                                            height = p3d.ODOL.ModelInfo.BboxMax.Y - p3d.ODOL.ModelInfo.BboxMin.Y;
+                                            length = p3d.ODOL.ModelInfo.BboxMax.Z - p3d.ODOL.ModelInfo.BboxMin.Z;
+                                        }
+                                        
+                                        // Voxelize and save GLB
+                                        string glbFileName = Path.GetFileNameWithoutExtension(modelBaseName) + ".glb";
+                                        string glbFilePath = Path.Combine(modelsWebDir, glbFileName);
+                                        
+                                        if (!File.Exists(glbFilePath))
+                                        {
+                                            try {
+                                                // Pick the highest-detail LOD
+                                                LOD bestLod = null;
+                                                int maxVertices = 0;
+                                                foreach (var lod in p3d.ODOL.Lods)
+                                                {
+                                                    if (lod.Vertices != null && lod.Vertices.Count > maxVertices)
+                                                    {
+                                                        maxVertices = lod.Vertices.Count;
+                                                        bestLod = lod;
+                                                    }
+                                                }
+                                                if (bestLod != null) {
+                                                    Voxelizer.ExportToGlb(p3d.ODOL.ModelInfo, bestLod, glbFilePath);
+                                                }
+                                            } catch { }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch { }
+                }
+
+                if (!found) {
+                    skipped++;
+                    Console.WriteLine($"  NOT FOUND: {modelBaseName}");
+                }
+                
+                if (width <= 0.01f) width = 1f;
+                if (height <= 0.01f) height = 1f;
+                if (length <= 0.01f) length = 1f;
+                
+                modelDimensions[modelBaseName] = (width, length, height);
+                processed++;
+                if (processed % 10 == 0) Console.WriteLine($"Processed {processed}/{neededModels.Count} models...");
+            }
+
+            Console.WriteLine($"\nTargeted processing complete: {processed} models dimensioned, {skipped} not found.");
+            Console.WriteLine($"Voxelized GLB files saved to: {modelsWebDir}");
+        }
+
         static void ExtractRoads(string mapName, string[] pboFiles, string rawDir)
         {
             Console.WriteLine($"Searching for shapefile roads for {mapName}...");

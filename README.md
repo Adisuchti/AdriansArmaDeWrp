@@ -1,7 +1,7 @@
 (this readme is largely AI generated)
 # Arma 3 Map Export & Web Viewer
 
-This project provides a complete data pipeline to extract, convert, and visualize Arma 3 maps (WRP files) in a custom 3D web viewer. It extracts terrain heightmaps, surface masks, and all 3D object placements directly from the game's PBO files and renders them in the browser using Three.js.
+This project provides a complete data pipeline to extract, convert, and visualize Arma 3 maps (WRP files) and mission files (SQM) in a custom 3D web viewer. It extracts terrain heightmaps, surface masks, all 3D object placements from WRP files, and placed entities from SQM mission files, then renders them in the browser using Three.js.
 
 ## Live Demo
 Check out a live interactive demo of the 3D map viewer showing the town of Elektro on the Chernarus map:  
@@ -9,8 +9,10 @@ Check out a live interactive demo of the 3D map viewer showing the town of Elekt
 
 ## Features
 - Parses proprietary .wrp (OPRW v25) map files to extract terrain and object data.
+- Parses .sqm mission files to extract placed vehicles, units, and objects.
 - Automatically searches Arma 3 base game and !Workshop directories for required models.
-- **Procedural Generation**: Does *not* extract or convert proprietary 3D meshes. Instead, it procedurally generates abstract, blocky "Voxel" representations of buildings and trees based on collision bounding boxes. Voxelization is fully parallelized across all CPU cores, and internal faces between adjacent voxels are automatically culled to reduce triangle count and improve rendering performance.
+- **Procedural Generation**: Does *not* extract or convert proprietary 3D meshes. Instead, procedurally generates abstract, blocky "Voxel" representations of buildings and trees based on collision bounding boxes. Voxelization is fully parallelized across all CPU cores.
+- Mission entities displayed with side-colored markers (Blue=West, Red=East, Green=Independent, Grey=Empty).
 - Interactive 3D Web Viewer built with Three.js.
 
 ## Prerequisites
@@ -36,65 +38,86 @@ Check out a live interactive demo of the 3D map viewer showing the town of Elekt
    }
    ```
 
-## Usage
+## Usage - WRP Maps
 
 ### 1. Extract Map Data
-The extraction step scans the map data to generate raw JSON, PNG data for each map, and calculates the base placements. *It does not calculate building dimensions or voxelize models yet to keep extraction lightning fast.*
+The extraction step scans the map data to generate raw JSON, PNG data for each map, and calculates base placements. *It does not calculate building dimensions or voxelize models yet to keep extraction fast.*
 
 **To extract all maps in your Arma 3 and Workshop folders:**
 ```powershell
 cd scripts
 .\extract_all_maps.ps1
 ```
-*(This scans the entire game installation and might take a minute.)*
 
-**To extract a single specific map quickly:**
+**To extract a single specific map:**
 ```powershell
 cd scripts
 .\extract_map.ps1 -MapName "Altis"
 ```
 
 ### 2. Process Models (For a Specific Map)
-You must process the map's 3D assets so the Web Viewer knows how to draw them. You have two options depending on your preference:
 
 #### Option A: Lightweight Dimensions (Fastest)
-This will scan the map's assets, instantly read the vertice extremes to calculate the physical bounding box (length, width, height) of every building, and update the JSON. The web viewer will render these as simple blocky boxes. It is incredibly fast and uses zero extra storage space.
-
-**Process a single map:**
+Instantly reads vertex extremes to calculate bounding boxes.
 ```powershell
 cd scripts
 .\process_map_simple.ps1 -MapName "Altis"
 ```
-
-**Process all extracted maps globally (Highly Recommended):**
+**Process all extracted maps (Recommended):**
 ```powershell
 cd scripts
 .\process_all_map_simple.ps1
 ```
-*(This scans all extracted maps, caches unique models, and processes dimensions exactly once per object, massively speeding up the calculation across all your maps.)*
 
 #### Option B: Full Voxelization (Higher Quality)
-This will generate abstract voxel 3D representations of the map's buildings as `.glb` files for the web viewer. This creates a beautiful "Minecraft-style" city with high detail. The voxelizer runs multithreaded (using all available CPU cores) and automatically culls internal faces between adjacent voxels, significantly reducing the triangle count and output file size. Voxel resolution has been doubled compared to earlier versions for better detail.
-
+Generates abstract voxel 3D representations as `.glb` files.
 ```powershell
 cd scripts
 .\process_map.ps1 -MapName "Altis"
 ```
-*(Voxelized models are cached centrally, so running it again on a different map that shares buildings will finish instantly. To regenerate all models with updated voxelization settings, delete the existing `.glb` files in the `models/` directory first.)*
 
 ### 3. Start the Web Viewer
-Start the local Python HTTP server, which acts as an API for the web frontend and serves the centralized models:
 ```bash
 cd web
 python server.py
 ```
 Then open http://localhost:8000 in your web browser.
 
+## Usage - SQM Mission Files
+
+The mission pipeline extracts placed entities (vehicles, units, objects) from `.sqm` mission files.
+
+### 1. Extract a Mission
+Parses the mission file and outputs entities with their types, positions, and sides.
+```powershell
+cd scripts
+.\extract_mission.ps1 -MissionFile "C:\path\to\mission.sqm" -MissionName "MyMission"
+```
+This creates `MyMission_SQM/` in your exports directory with `meta.json` and `entities.json`.
+
+### 2. Process Mission Models (Optional)
+Checks which model types from the mission are available in the central model cache.
+```powershell
+cd scripts
+.\process_mission.ps1 -MissionName "MyMission"
+```
+*Note: Models are cached centrally in `{exports_dir}/models/` — if you've already processed the corresponding map with `process_map.ps1` or `process_map_simple.ps1`, all models should already be available.*
+
+### 3. View in Browser
+- Start the web viewer (`python server.py` from the `web/` directory)
+- Select the map the mission is on from the **Map** dropdown
+- Select the mission from the **Mission** dropdown
+- Select a region and click **Render 3D**
+- Mission entities are displayed as colored markers on the terrain:
+  - 🔵 Blue spheres/boxes = BLUFOR/West
+  - 🔴 Red = OPFOR/East
+  - 🟢 Green = Independent/Resistance
+  - ⚪ Grey = Empty/Civilian
+
 ## Documentation
 - Detailed notes on the reverse-engineered WRP binary format can be found in `docs/WRP_FORMAT.md`.
 
 ## Credits & Acknowledgements
-This project relies on fantastic community code for data extraction:
-- **[bis-file-formats (Braini01 fork)](https://github.com/Braini01/bis-file-formats)**: An open-source C# library used by our `WrpAnalyzer` to parse the proprietary `.wrp` and `.p3d` binary structures purely into memory. Included locally in `scripts/bis-file-formats`.
+- **[bis-file-formats (Braini01 fork)](https://github.com/Braini01/bis-file-formats)**: Open-source C# library for parsing `.wrp` and `.p3d` binary structures. Included locally in `scripts/bis-file-formats`.
 
 *Note: This tool does not distribute or convert Bohemia Interactive's proprietary 3D meshes (ODOL). All 3D assets generated by this tool are mathematically abstracted voxel bounding boxes designed for web mapping.*

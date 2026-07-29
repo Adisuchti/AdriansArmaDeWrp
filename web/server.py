@@ -30,13 +30,46 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             
             maps = []
+            missions = []
             if os.path.exists(EXPORTS_DIR):
                 for item in os.listdir(EXPORTS_DIR):
-                    map_path = os.path.join(EXPORTS_DIR, item)
-                    if os.path.isdir(map_path):
-                        maps.append(item)
+                    item_path = os.path.join(EXPORTS_DIR, item)
+                    if os.path.isdir(item_path):
+                        if item.endswith('_SQM'):
+                            missions.append(item)
+                        else:
+                            maps.append(item)
             
-            self.wfile.write(json.dumps({"maps": maps}).encode())
+            self.wfile.write(json.dumps({"maps": maps, "missions": missions}).encode())
+            return
+
+        # 1b. API: List all missions
+        if path == '/api/missions' or path == '/api/missions.json':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            missions = []
+            if os.path.exists(EXPORTS_DIR):
+                for item in os.listdir(EXPORTS_DIR):
+                    item_path = os.path.join(EXPORTS_DIR, item)
+                    if os.path.isdir(item_path) and item.endswith('_SQM'):
+                        meta_file = os.path.join(item_path, 'meta.json')
+                        meta = {}
+                        if os.path.exists(meta_file):
+                            try:
+                                with open(meta_file, 'r') as f:
+                                    meta = json.load(f)
+                            except Exception:
+                                pass
+                        missions.append({
+                            "name": item,
+                            "author": meta.get("author", ""),
+                            "map_name": meta.get("map_name", ""),
+                            "entity_count": meta.get("entity_count", 0),
+                        })
+            
+            self.wfile.write(json.dumps({"missions": missions}).encode())
             return
 
         # 2. Dynamic Map Assets: /map/Stratis/objects_in_region?minX=&maxX=&minY=&maxY=
@@ -70,6 +103,32 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
                     return
             
             self.send_error(404, "File not found")
+            return
+
+        # 2b. Mission Assets: /mission/mission_SQM/entities_in_region?minX=&maxX=&minY=&maxY=
+        if path.startswith('/mission/'):
+            parts = path.split('/')
+            if len(parts) >= 4 and parts[3] == 'entities_in_region':
+                mission_name = parts[2]
+                self._serve_mission_entities_in_region(mission_name, query)
+                return
+
+            if len(parts) >= 4:
+                mission_name = parts[2]
+                file_name = parts[3]
+                target_file = os.path.join(EXPORTS_DIR, mission_name, file_name)
+                
+                if os.path.exists(target_file):
+                    self.send_response(200)
+                    if file_name.endswith('.json'):
+                        self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    
+                    with open(target_file, 'rb') as f:
+                        shutil.copyfileobj(f, self.wfile)
+                    return
+            
+            self.send_error(404, "Mission file not found")
             return
 
         # 3. Serve GLTF Models: /models/barrelsand_f.glb
@@ -202,6 +261,41 @@ class MapServer(http.server.SimpleHTTPRequestHandler):
         if seg_max_y < min_y or seg_min_y > max_y:
             return False
         return True
+
+    def _serve_mission_entities_in_region(self, mission_name, query):
+        """Return mission entities filtered by bounding box."""
+        entities_file = os.path.join(EXPORTS_DIR, mission_name, 'entities.json')
+        if not os.path.exists(entities_file):
+            self.send_error(404, f"entities.json not found for mission {mission_name}")
+            return
+
+        try:
+            min_x = float(query.get('minX', [None])[0])
+            max_x = float(query.get('maxX', [None])[0])
+            min_y = float(query.get('minY', [None])[0])
+            max_y = float(query.get('maxY', [None])[0])
+        except (TypeError, ValueError):
+            self.send_error(400, "Missing or invalid query parameters: minX, maxX, minY, maxY required")
+            return
+
+        try:
+            with open(entities_file, 'r', encoding='utf-8') as f:
+                entities = json.load(f)
+        except Exception as e:
+            self.send_error(500, f"Failed to read entities.json: {e}")
+            return
+
+        matching = []
+        for entity in entities:
+            x = entity.get('x', 0)
+            z = entity.get('z', 0)
+            if min_x <= x <= max_x and min_y <= z <= max_y:
+                matching.append(entity)
+
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({"entities": matching}).encode())
 
     def _serve_roads_in_region(self, map_name, query):
         """Filter roadnet.json polylines by bounding box, returning only roads that intersect the region."""
