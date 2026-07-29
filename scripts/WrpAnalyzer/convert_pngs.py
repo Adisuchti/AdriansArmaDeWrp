@@ -142,6 +142,172 @@ def convert_byte_palette(base_dir, filename, width, height, out_name):
     print(f"Saved {png_path}")
 
 
+def parse_rvmat_layers(path):
+    if not path:
+        return []
+    normalized = path.replace("\\", "/").lower()
+    filename = os.path.basename(normalized)
+    if filename.startswith("p_") and "_" in filename:
+        parts = filename.split("_")
+        if len(parts) >= 3:
+            layers = []
+            for p in parts[2:]:
+                if p.endswith(".rvmat"):
+                    p = p[:-6]
+                layers.append(p)
+            return layers
+    if normalized.endswith(".rvmat"):
+        normalized = normalized[:-6]
+    return [normalized]
+
+
+def convert_primary_texture(base_dir, hm_width, hm_height, mat_width, mat_height):
+    prim_bin_path = os.path.join(base_dir, "raw", "prim_tex.bin")
+    mask_bin_path = os.path.join(base_dir, "raw", "material_mask.bin")
+    mat_names_path = os.path.join(base_dir, "parsed", "material_names.json")
+
+    if not os.path.exists(prim_bin_path) or not os.path.exists(mask_bin_path) or not os.path.exists(mat_names_path):
+        # Fallback to standard byte palette if some files are missing
+        convert_byte_palette(base_dir, "prim_tex.bin", hm_width, hm_height, "prim_tex.png")
+        return
+
+    print("  Generating consistent prim_tex.png using material mask...")
+
+    # Load material names
+    with open(mat_names_path, "r") as f:
+        mat_names = json.load(f)
+
+    # Load material mask (ushort per cell)
+    with open(mask_bin_path, "rb") as f:
+        ushorts = struct.unpack(f"<{mat_width*mat_height}H", f.read()[:mat_width*mat_height*2])
+
+    # Load prim_tex (byte per cell)
+    with open(prim_bin_path, "rb") as f:
+        bytes_data = struct.unpack(f"<{hm_width*hm_height}B", f.read()[:hm_width*hm_height])
+
+    # Pre-parse layers for each material index
+    mat_layers = []
+    for path in mat_names:
+        mat_layers.append(parse_rvmat_layers(path))
+
+    # Pre-resolve layer names for all possible (mat_idx, slot_idx) pairs
+    unique_layers = set()
+    resolved_layers = []
+    for mat_idx in range(len(mat_names)):
+        layers = mat_layers[mat_idx]
+        row = []
+        for slot_idx in range(256):
+            layer_name = layers[slot_idx] if slot_idx < len(layers) else "n"
+            row.append(layer_name)
+            unique_layers.add(layer_name)
+        resolved_layers.append(row)
+
+    # Assign deterministic colors to unique layer names
+    import random
+    random.seed(123)
+    unique_layers.discard("n")
+    sorted_layers = sorted(list(unique_layers))
+
+    PREDEFINED_COLORS = {
+        "l00": (0, 70, 180),      # Blue (Ocean / Deep Water)
+        "l01": (220, 200, 130),   # Sand / Beach
+        "l02": (60, 180, 75),     # Grass
+        "l03": (128, 128, 0),     # Dry Grass / Steppe
+        "l04": (30, 100, 30),     # Forest Green
+        "l05": (120, 120, 120),   # Rock / Stone
+        "l06": (245, 220, 30),    # Crop / Yellow
+        "l07": (145, 30, 180),    # Purple / Heather
+        "l08": (70, 240, 240),    # Marsh / Cyan
+        "l09": (150, 75, 0),      # Soil / Brown
+        "l10": (240, 50, 230),    # Pink
+        "l11": (200, 200, 200),   # Concrete / Grey
+        "l12": (0, 128, 128),     # Teal
+        "l13": (220, 190, 255),   # Lavender
+        "l14": (255, 0, 255),     # Magenta
+        "l15": (210, 245, 60),    # Lime
+        "l16": (245, 130, 48),    # Orange
+        "l17": (128, 0, 0),       # Maroon
+        "l18": (0, 0, 128),       # Navy
+        "l19": (170, 255, 195),   # Mint
+        "l20": (255, 215, 180),   # Peach
+        "n": (0, 0, 0),           # None / Black
+    }
+
+    color_pool = [
+        (230, 25, 75),    # Red
+        (60, 180, 75),    # Green
+        (255, 225, 25),   # Yellow
+        (0, 130, 200),    # Blue
+        (245, 130, 48),   # Orange
+        (145, 30, 180),   # Purple
+        (70, 240, 240),   # Cyan
+        (240, 50, 230),   # Magenta
+        (210, 245, 60),   # Lime
+        (250, 190, 212),  # Pink
+        (0, 128, 128),    # Teal
+        (220, 190, 255),  # Lavender
+        (170, 110, 40),   # Brown
+        (255, 250, 200),  # Beige
+        (128, 0, 0),      # Maroon
+        (170, 255, 195),  # Mint
+        (128, 128, 0),    # Olive
+        (255, 215, 180),  # Apricot
+        (0, 0, 128),      # Navy
+        (128, 128, 128),  # Grey
+    ]
+
+    layer_colors = {}
+    layer_colors.update(PREDEFINED_COLORS)
+
+    pool_idx = 0
+    for layer in sorted_layers:
+        if layer not in layer_colors:
+            while pool_idx < len(color_pool):
+                chosen_color = color_pool[pool_idx]
+                pool_idx += 1
+                if chosen_color not in layer_colors.values():
+                    layer_colors[layer] = chosen_color
+                    break
+            else:
+                layer_colors[layer] = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+
+    # Build image
+    scale_x = hm_width // mat_width
+    scale_y = hm_height // mat_height
+    if scale_x < 1: scale_x = 1
+    if scale_y < 1: scale_y = 1
+
+    img = Image.new('RGB', (hm_width, hm_height))
+    pixels = img.load()
+
+    # Process all pixels
+    for hm_y in range(hm_height):
+        hm_row_offset = hm_y * hm_width
+        my = min(hm_y // scale_y, mat_height - 1)
+        mat_row_offset = my * mat_width
+
+        for hm_x in range(hm_width):
+            # Resolve material index
+            mx = min(hm_x // scale_x, mat_width - 1)
+            mat_idx = ushorts[mat_row_offset + mx]
+
+            # Resolve local slot index
+            slot_idx = bytes_data[hm_row_offset + hm_x]
+
+            # Find layer name and color
+            if mat_idx < len(resolved_layers):
+                layer_name = resolved_layers[mat_idx][slot_idx]
+            else:
+                layer_name = "n"
+
+            pixels[hm_x, hm_y] = layer_colors[layer_name]
+
+    img = img.transpose(Image.FLIP_TOP_BOTTOM)
+    png_path = os.path.join(base_dir, "parsed", "prim_tex.png")
+    img.save(png_path)
+    print(f"Saved {png_path} (Consistent)")
+
+
 def convert_byte_grayscale(base_dir, filename, width, height, out_name):
     bin_path = os.path.join(base_dir, "raw", filename)
     if not os.path.exists(bin_path):
@@ -370,7 +536,7 @@ if __name__ == "__main__":
     convert_byte_palette(base_dir, "sound_map.bin", mat_w, mat_h, "sound_map.png")
     convert_geography(base_dir, mat_w, mat_h)
     convert_byte_grayscale(base_dir, "grass_approx.bin", hm_w, hm_h, "grass_approx.png")
-    convert_byte_palette(base_dir, "prim_tex.bin", hm_w, hm_h, "prim_tex.png")
+    convert_primary_texture(base_dir, hm_w, hm_h, mat_w, mat_h)
     convert_byte_palette(base_dir, "persistent.bin", mat_w, mat_h, "persistent.png")
 
     # NEW: Meaningful classified terrain map
