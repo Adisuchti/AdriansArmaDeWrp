@@ -99,7 +99,7 @@ namespace WrpAnalyzer
         static void ExtractMaps(string armaDir, string baseRawDir, string baseWebDir, string mapNameFilter)
         {
             Console.WriteLine("Searching for map PBOs in: " + armaDir);
-            var pboFiles = Directory.GetFiles(armaDir, "*map*.pbo", SearchOption.AllDirectories);
+            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories);
             Console.WriteLine($"Found {pboFiles.Length} potential map PBOs.");
             
             string pythonScript = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "convert_pngs.py");
