@@ -9,6 +9,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
   </head>
   <body>
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="hidden glass-panel">
+      <h3 style="margin: 0; color: #fff;">Loading 3D View</h3>
+      <div style="width: 100%; background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+        <div id="loading-progress-bar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.3s ease;"></div>
+      </div>
+      <p id="loading-text" style="font-size: 13px; margin: 0; color: #cbd5e1;">Preparing...</p>
+    </div>
+
     <div id="app">
       <header class="glass-header">
         <h1>Arma 3 <span>3D Map Viewer</span></h1>

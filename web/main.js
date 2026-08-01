@@ -343,6 +343,14 @@ async function render3D() {
 
   mapSelect.disabled = true;
 
+  const loader = document.getElementById('loading-overlay');
+  const loadingBar = document.getElementById('loading-progress-bar');
+  const loadingText = document.getElementById('loading-text');
+  
+  if (loader) loader.classList.remove('hidden');
+  if (loadingBar) loadingBar.style.width = '0%';
+  if (loadingText) loadingText.innerText = 'Calculating coordinates...';
+
   if (currentSelection && currentSelection.wrapperWidth) {
     const px = currentSelection.left / currentSelection.wrapperWidth;
     const py = currentSelection.top / currentSelection.wrapperHeight;
@@ -524,6 +532,8 @@ async function render3D() {
   const armaCenterY = armaMinY + selMetersHeight / 2;
 
   statusText.innerText = 'Fetching objects for selected region...';
+  if (loadingText) loadingText.innerText = 'Fetching objects for selected region...';
+  if (loadingBar) loadingBar.style.width = '10%';
   let validObjects = [];
   try {
     const regionRes = await fetch(
@@ -753,7 +763,15 @@ async function render3D() {
   animate();
 
   // Load models asynchronously
-  for (const [glbFile, group] of Object.entries(modelGroups)) {
+  const modelEntries = Object.entries(modelGroups);
+  const totalModels = modelEntries.length;
+  let loadedModels = 0;
+
+  for (const [glbFile, group] of modelEntries) {
+    if (loadingText) loadingText.innerText = `Loading models... (${loadedModels}/${totalModels})`;
+    if (loadingBar) loadingBar.style.width = `${10 + (loadedModels / totalModels) * 70}%`;
+    loadedModels++;
+
     if (group.objects.length === 0) continue;
 
     const count = group.objects.length;
@@ -846,6 +864,8 @@ async function render3D() {
   // Road colors match the roads.png convention:
   //   Track: #D6C2A6, Road: #B2B2B2, Main Road: #E6804C
   statusText.innerText = 'Loading road network...';
+  if (loadingText) loadingText.innerText = 'Loading road network...';
+  if (loadingBar) loadingBar.style.width = '85%';
   try {
     const roadsRes = await fetch(
       `map/${mapSelect.value}/roads_in_region?minX=${armaMinX}&maxX=${armaMaxX}&minY=${armaMinY}&maxY=${armaMaxY}`
@@ -992,6 +1012,9 @@ async function render3D() {
   }
 
   // 6. Render Mission Entities (if a mission is selected)
+  if (loadingText) loadingText.innerText = 'Loading mission entities...';
+  if (loadingBar) loadingBar.style.width = '90%';
+  
   if (currentMissionData && currentMissionData.entities) {
     const sideColors = {
       'West': 0x3388ff,
@@ -1344,8 +1367,11 @@ async function render3D() {
   };
   
   // Hide loading screen when done setting up
-  const loader = document.getElementById('loading-overlay');
-  if (loader) loader.classList.add('hidden');
+  if (loadingText) loadingText.innerText = 'Ready';
+  if (loadingBar) loadingBar.style.width = '100%';
+  setTimeout(() => {
+    if (loader) loader.classList.add('hidden');
+  }, 400); // brief delay to see 100% completion
 }
 
 async function loadMission(missionName) {
