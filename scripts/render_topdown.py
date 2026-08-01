@@ -20,7 +20,7 @@ import os
 import sys
 import argparse
 import math
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 
 # ── Colours ─────────────────────────────────────────────────────────────────
@@ -259,6 +259,46 @@ def render_roads(draw, roadnet_file: str, meta: dict, img_w: int, img_h: int):
     print(f"  Roads: {drawn:,} segments drawn.")
 
 
+def render_names(draw, names_file: str, meta: dict, img_w: int, img_h: int):
+    map_size = meta.get("mapSize", 8192)
+    with open(names_file, "r", encoding="utf-8") as f:
+        names = json.load(f)
+        
+    try:
+        font_city = ImageFont.truetype("arial.ttf", 60)
+        font_village = ImageFont.truetype("arial.ttf", 40)
+        font_local = ImageFont.truetype("arial.ttf", 30)
+    except IOError:
+        font_city = font_village = font_local = ImageFont.load_default()
+        
+    for place in names:
+        name = place.get("name", "")
+        if not name:
+            continue
+            
+        x = place.get("x", 0)
+        y = place.get("y", 0)
+        p_type = place.get("type", "")
+        
+        px = (x / map_size) * img_w
+        # y coordinates in Arma are from bottom to top, image is top to bottom
+        py = img_h - ((y / map_size) * img_h)
+        
+        font = font_local
+        color = (255, 255, 255)
+        if p_type == "NameCityCapital":
+            font = font_city
+            color = (255, 255, 100)
+        elif p_type == "NameCity":
+            font = font_city
+        elif p_type == "NameVillage":
+            font = font_village
+            
+        # Draw shadow
+        draw.text((px+2, py+2), name, fill=(0,0,0), font=font, anchor="ms")
+        draw.text((px, py), name, fill=color, font=font, anchor="ms")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Render a top-down map overview with terrain, objects, and roads."
@@ -269,6 +309,7 @@ def main():
     parser.add_argument("--height", type=int, default=0, help="Output height in pixels")
     parser.add_argument("--no-objects", action="store_true", help="Skip object rendering")
     parser.add_argument("--no-roads", action="store_true", help="Skip road rendering")
+    parser.add_argument("--no-names", action="store_true", help="Skip name rendering")
     parser.add_argument("--no-terrain", action="store_true",
                         help="Skip terrain_class.png background (solid colour instead)")
     parser.add_argument("--bg-color", type=str, default="#0f172a",
@@ -340,6 +381,15 @@ def main():
             print(f"  (roadnet.json not found — skipping roads)")
     else:
         print("  (--no-roads: skipping roads)")
+
+    # ── 4.5. Render names ──────────────────────────────────────────────────
+    if not args.no_names:
+        names_path = os.path.join(map_dir, "names.json")
+        if os.path.exists(names_path):
+            print(f"Rendering place names from {names_path}...")
+            render_names(draw, names_path, meta, img_w, img_h)
+    else:
+        print("  (--no-names: skipping place names)")
 
     # ── 5. Save output ────────────────────────────────────────────────────
     map_name = os.path.basename(map_dir.rstrip("/\\"))

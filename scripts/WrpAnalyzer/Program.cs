@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Xml.Linq;
 using Newtonsoft.Json;
 using BIS.Core.Streams;
 using BIS.WRP;
@@ -96,8 +97,56 @@ namespace WrpAnalyzer
             return p3dToPboMap;
         }
 
+        static Dictionary<string, string> BuildStringTable(string armaDir)
+        {
+            Console.WriteLine("Indexing stringtable.xml files for translations...");
+            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories);
+            var stringTable = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            
+            foreach (var pboPath in pboFiles)
+            {
+                try
+                {
+                    using (var pbo = new PBO(pboPath))
+                    {
+                        var stFile = pbo.Files.FirstOrDefault(f => f.FileName.Equals("stringtable.xml", StringComparison.OrdinalIgnoreCase));
+                        if (stFile != null)
+                        {
+                            using (var stream = stFile.OpenRead())
+                            using (var reader = new StreamReader(stream))
+                            {
+                                try
+                                {
+                                    XDocument xml = XDocument.Parse(reader.ReadToEnd());
+                                    var keys = xml.Descendants("Key");
+                                    foreach (var key in keys)
+                                    {
+                                        var id = key.Attribute("ID")?.Value;
+                                        if (!string.IsNullOrEmpty(id))
+                                        {
+                                            var english = key.Element("English")?.Value ?? key.Element("Original")?.Value;
+                                            if (!string.IsNullOrEmpty(english))
+                                            {
+                                                stringTable[id] = english;
+                                            }
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+            Console.WriteLine($"Loaded {stringTable.Count} translation keys.");
+            return stringTable;
+        }
+
         static void ExtractMaps(string armaDir, string baseRawDir, string baseWebDir, string mapNameFilter)
         {
+            var stringTable = BuildStringTable(armaDir);
+            
             Console.WriteLine("Searching for map PBOs in: " + armaDir);
             var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories);
             Console.WriteLine($"Found {pboFiles.Length} potential map PBOs.");
@@ -393,6 +442,103 @@ namespace WrpAnalyzer
                                         }
                                         Console.WriteLine($"Exported {totalLinks} road links to roadnet.json.");
                                         File.Copy(roadnetPath, Path.Combine(mapWebDir, "roadnet.json"), true);
+                                    }
+                                    
+                                    // 5. Export Map Place Names from config.bin
+                                    var configFile = pbo.Files.FirstOrDefault(f => f.FileName.Equals("config.bin", StringComparison.OrdinalIgnoreCase));
+                                    if (configFile != null)
+                                    {
+                                        Console.WriteLine("Extracting place names from config.bin...");
+                                        using (var cfgStream = configFile.OpenRead())
+                                        {
+                                            try
+                                            {
+                                                var paramFile = new BIS.Core.Config.ParamFile(cfgStream);
+                                                var cfgWorlds = paramFile.Root.Entries.FirstOrDefault(e => e.Name.Equals("CfgWorlds", StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
+                                                if (cfgWorlds != null)
+                                                {
+                                                    var worldCfg = cfgWorlds.Entries.FirstOrDefault(e => e.Name.Equals(mapName, StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
+                                                    if (worldCfg != null)
+                                                    {
+                                                        var names = worldCfg.Entries.FirstOrDefault(e => e.Name.Equals("Names", StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
+                                                        if (names != null)
+                                                        {
+                                                            string namesJsonPath = Path.Combine(mapParsedDir, "names.json");
+                                                            var namesList = new List<object>();
+                                                            
+                                                            foreach (var entry in names.Entries)
+                                                            {
+                                                                if (entry is BIS.Core.Config.ParamClass nameClass)
+                                                                {
+                                                                    string locName = "";
+                                                                    string locType = "";
+                                                                    float posX = 0;
+                                                                    float posY = 0;
+                                                                    float radiusA = 0;
+                                                                    float radiusB = 0;
+                                                                    
+                                                                    foreach (var prop in nameClass.Entries)
+                                                                    {
+                                                                        if (prop is BIS.Core.Config.ParamValue pv)
+                                                                        {
+                                                                            if (prop.Name.Equals("name", StringComparison.OrdinalIgnoreCase)) locName = pv.Get<string>();
+                                                                            else if (prop.Name.Equals("type", StringComparison.OrdinalIgnoreCase)) locType = pv.Get<string>();
+                                                                            else if (prop.Name.Equals("radiusA", StringComparison.OrdinalIgnoreCase)) radiusA = pv.Get<float>();
+                                                                            else if (prop.Name.Equals("radiusB", StringComparison.OrdinalIgnoreCase)) radiusB = pv.Get<float>();
+                                                                        }
+                                                                        else if (prop is BIS.Core.Config.ParamArray pa && prop.Name.Equals("position", StringComparison.OrdinalIgnoreCase))
+                                                                        {
+                                                                            if (pa.Array.Entries.Count >= 2)
+                                                                            {
+                                                                                posX = pa.Array.Entries[0].Get<float>();
+                                                                                posY = pa.Array.Entries[1].Get<float>();
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    
+                                                                    // Normalize stringtable name
+                                                                    if (!string.IsNullOrEmpty(locName) && locName.StartsWith("$STR_"))
+                                                                    {
+                                                                        // Remove $ at the start if present
+                                                                        string lookupKey = locName.StartsWith("$") ? locName.Substring(1) : locName;
+                                                                        if (stringTable.TryGetValue(lookupKey, out string translated))
+                                                                        {
+                                                                            locName = translated;
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            // Fallback smart cleaner
+                                                                            locName = lookupKey;
+                                                                            if (locName.StartsWith("STR_A3_")) locName = locName.Substring(7);
+                                                                            if (locName.EndsWith("0")) locName = locName.Substring(0, locName.Length - 1);
+                                                                        }
+                                                                    }
+                                                                    
+                                                                    namesList.Add(new {
+                                                                        id = nameClass.Name,
+                                                                        name = locName,
+                                                                        type = locType,
+                                                                        x = posX,
+                                                                        y = posY,
+                                                                        radiusA = radiusA,
+                                                                        radiusB = radiusB
+                                                                    });
+                                                                }
+                                                            }
+                                                            
+                                                            string namesJson = JsonConvert.SerializeObject(namesList, Formatting.Indented);
+                                                            File.WriteAllText(namesJsonPath, namesJson);
+                                                            File.Copy(namesJsonPath, Path.Combine(mapWebDir, "names.json"), true);
+                                                            Console.WriteLine($"Exported {namesList.Count} place names to names.json.");
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                Console.WriteLine($"Warning: Failed to parse config.bin for names: {ex.Message}");
+                                            }
+                                        }
                                     }
                                     
                                     Console.WriteLine("Generating PNGs via python...");

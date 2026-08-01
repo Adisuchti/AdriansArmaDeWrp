@@ -30,7 +30,9 @@ let startX, startY;
 let currentSelection = null; // {x, y, w, h} in canvas CSS pixels
 let objectData = null; // parsed JSON
 let classificationData = {}; // parsed classification lookup
+let placeNamesData = []; // array of place names
 let threeScene, threeCamera, threeRenderer, threeControls;
+let nameLabels = []; // DOM elements for place names
 
 const mapSelect = document.getElementById('map-select');
 const missionSelect = document.getElementById('mission-select');
@@ -210,7 +212,19 @@ async function loadMap(mapName) {
       terrainTextureImage = null;
     }
 
-    // 4. No longer loading all objects upfront — they will be fetched per-region in render3D()
+    // 4. Load place names
+    try {
+      const namesRes = await fetch(`map/${mapName}/names.json`);
+      if (namesRes.ok) {
+        placeNamesData = await namesRes.json();
+      } else {
+        placeNamesData = [];
+      }
+    } catch (e) {
+      placeNamesData = [];
+    }
+
+    // 5. No longer loading all objects upfront — they will be fetched per-region in render3D()
     // Just mark the map as loaded with a dummy array so the selection logic works
     objectData = []; // placeholder; real data fetched in render3D
 
@@ -654,15 +668,88 @@ async function render3D() {
     buildings: [], nature: [], clutter: [], roads: [], structures: [], lamps: []
   };
   const allInstancedMeshes = [];
+  let nameLabels = [];
+  const labelsContainer = document.getElementById('labels-container');
   
   // Start Animation Loop early so models stream in
   let isRendering = true;
   function animate() {
-    if (!threeRenderer || !isRendering) return;
     requestAnimationFrame(animate);
-    threeControls.update();
-    threeRenderer.render(threeScene, threeCamera);
+
+    if (threeControls) {
+      threeControls.update();
+    }
+
+    // Update labels position
+    const filterNames = document.getElementById('filter-names').checked;
+    const labelsContainer = document.getElementById('labels-container');
+    labelsContainer.style.display = filterNames ? 'block' : 'none';
+
+    if (filterNames) {
+      const halfWidth = window.innerWidth / 2;
+      const halfHeight = window.innerHeight / 2;
+      const vec = new THREE.Vector3();
+
+      nameLabels.forEach(labelObj => {
+        vec.copy(labelObj.pos);
+        vec.project(threeCamera);
+
+        // Check if behind camera
+        if (vec.z > 1) {
+          labelObj.element.style.display = 'none';
+        } else {
+          labelObj.element.style.display = 'block';
+          const x = (vec.x * halfWidth) + halfWidth;
+          const y = -(vec.y * halfHeight) + halfHeight;
+          labelObj.element.style.left = `${x}px`;
+          labelObj.element.style.top = `${y}px`;
+        }
+      });
+    }
+
+    if (threeRenderer && threeScene && threeCamera) {
+      threeRenderer.render(threeScene, threeCamera);
+    }
   }
+
+  // 7. Create DOM labels for place names inside the selected region
+  placeNamesData.forEach(place => {
+    if (place.x >= armaMinX && place.x <= armaMaxX && place.y >= armaMinY && place.y <= armaMaxY) {
+      const label = document.createElement('div');
+      label.className = 'place-name-label';
+      label.textContent = place.name;
+      
+      let fontSize = '14px';
+      let fontWeight = 'bold';
+      if (place.type === 'NameCityCapital') fontSize = '24px';
+      else if (place.type === 'NameCity') fontSize = '20px';
+      else if (place.type === 'NameVillage') fontSize = '16px';
+      else if (place.type === 'Hill') {
+          fontSize = '12px';
+          fontWeight = 'normal';
+          label.style.fontStyle = 'italic';
+          label.style.color = '#cbd5e1';
+      }
+
+      label.style.position = 'absolute';
+      label.style.color = '#ffffff';
+      label.style.fontSize = fontSize;
+      label.style.fontWeight = fontWeight;
+      label.style.textShadow = '1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black';
+      label.style.transform = 'translate(-50%, -50%)';
+      label.style.pointerEvents = 'none';
+      label.style.fontFamily = '"Segoe UI", Arial, sans-serif';
+      
+      labelsContainer.appendChild(label);
+      
+      const h = getTerrainHeightAt(place.x, place.y);
+      nameLabels.push({
+        element: label,
+        pos: new THREE.Vector3(place.x - armaCenterX, h + 20, armaCenterY - place.y) // float above terrain
+      });
+    }
+  });
+
   animate();
 
   // Load models asynchronously
@@ -1159,6 +1246,9 @@ async function render3D() {
     view3d.classList.add('hidden');
     view2d.classList.remove('hidden');
     document.getElementById('object-info-panel').classList.add('hidden');
+    const labelsContainer = document.getElementById('labels-container');
+    labelsContainer.innerHTML = '';
+    nameLabels = [];
     if (threeRenderer) {
       webglContainer.removeChild(threeRenderer.domElement);
       threeRenderer.dispose();

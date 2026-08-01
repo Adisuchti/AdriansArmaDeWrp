@@ -95,6 +95,14 @@ def write_svg_header(f, map_size):
     f.write('  .clutter { fill: #78716c; stroke: none; }\n')
     f.write('  .structures { fill: #64748b; stroke: none; }\n')
     f.write('  .lamps { fill: #facc15; stroke: none; }\n')
+    
+    # Text styles
+    f.write('  .place-name { text-anchor: middle; font-family: "Segoe UI", Arial, sans-serif; fill: #1e293b; paint-order: stroke; stroke: #ffffff; stroke-width: 3px; font-weight: bold; }\n')
+    f.write('  .NameCityCapital { font-size: 180px; text-transform: uppercase; }\n')
+    f.write('  .NameCity { font-size: 140px; text-transform: uppercase; }\n')
+    f.write('  .NameVillage { font-size: 100px; }\n')
+    f.write('  .NameLocal { font-size: 80px; font-style: italic; font-weight: normal; stroke-width: 2px; }\n')
+    f.write('  .Hill { font-size: 70px; font-style: italic; font-weight: normal; fill: #475569; stroke-width: 2px; }\n')
     f.write(']]></style>\n')
     f.write('</defs>\n')
     f.write('<g id="terrain">\n')
@@ -295,12 +303,44 @@ def render_objects(f, objects_file: str, map_size: float, classification: dict):
 
         print(f"  Objects: {count:,} total processed.")
 
+def render_names(f, names_path, map_size):
+    if not os.path.exists(names_path):
+        return
+        
+    print(f"Rendering place names from {names_path}...")
+    f.write('<g id="place-names">\n')
+    
+    with open(names_path, "r", encoding="utf-8") as nf:
+        names = json.load(nf)
+        
+    for place in names:
+        x = place.get("x", 0)
+        y = place.get("y", 0)
+        name = place.get("name", "")
+        p_type = place.get("type", "")
+        
+        if not name:
+            continue
+            
+        # SVG coordinates (Y is flipped in SVG relative to map coordinates)
+        svg_y = map_size - y
+        
+        # Determine CSS class based on type
+        cls = "place-name"
+        if p_type:
+            cls += f" {p_type}"
+            
+        f.write(f'  <text x="{x:.1f}" y="{svg_y:.1f}" class="{cls}">{name}</text>\n')
+        
+    f.write('</g>\n')
+
 def main():
     parser = argparse.ArgumentParser(description="Generate SVG Map with Contours from Arma 3 exports.")
     parser.add_argument("map_dir", help="Path to the extracted map directory (e.g. Altis_WRP)")
     parser.add_argument("--output", help="Output SVG file path (default: <MapName>_Map.svg)", default=None)
     parser.add_argument("--interval", type=int, default=10, help="Contour interval in meters (default: 10)")
     parser.add_argument("--main-interval", type=int, default=50, help="Main contour interval in meters (default: 50)")
+    parser.add_argument("--no-names", action="store_true", help="Skip rendering place names on the map")
     
     args = parser.parse_args()
     
@@ -355,6 +395,13 @@ def main():
         # 3. Objects
         objects_path = os.path.join(map_dir, "objects.json")
         render_objects(f, objects_path, map_size, classification)
+        
+        # 4. Names
+        if not args.no_names:
+            names_path = os.path.join(map_dir, "names.json")
+            render_names(f, names_path, map_size)
+        else:
+            print("  (--no-names: skipping place names)")
         
         f.write('</g>\n')
         f.write('</svg>\n')
