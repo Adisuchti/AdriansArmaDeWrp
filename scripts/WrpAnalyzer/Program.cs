@@ -299,6 +299,16 @@ namespace WrpAnalyzer
                                                 float pitch = (float)(Math.Asin(Math.Max(-1.0, Math.Min(1.0, obj.Transform.Matrix.M32 / scaleZ))) * 180.0 / Math.PI);
                                                 float roll = (float)(Math.Atan2(obj.Transform.Matrix.M12 / scaleX, obj.Transform.Matrix.M22 / scaleY) * 180.0 / Math.PI);
                                                 
+                                                if (float.IsNaN(pitch) || float.IsInfinity(pitch)) pitch = 0;
+                                                if (float.IsNaN(roll) || float.IsInfinity(roll)) roll = 0;
+                                                if (float.IsNaN(yaw) || float.IsInfinity(yaw)) yaw = 0;
+                                                if (float.IsNaN(scaleX) || float.IsInfinity(scaleX)) scaleX = 1;
+                                                if (float.IsNaN(scaleY) || float.IsInfinity(scaleY)) scaleY = 1;
+                                                if (float.IsNaN(scaleZ) || float.IsInfinity(scaleZ)) scaleZ = 1;
+                                                if (float.IsNaN(x) || float.IsInfinity(x)) x = 0;
+                                                if (float.IsNaN(y) || float.IsInfinity(y)) y = 0;
+                                                if (float.IsNaN(z) || float.IsInfinity(z)) z = 0;
+
                                                 string modelBaseName = Path.GetFileName(obj.Model);
 
                                                 if (validCount > 0) sw.WriteLine(",");
