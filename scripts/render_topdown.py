@@ -7,8 +7,10 @@ Usage:
     <map_dir>   Path to the parsed map directory (contains terrain_class.png,
                 objects.json, roadnet.json, meta.json).
     output.png  Output image path (default: topdown_<mapname>.png).
-    --width W   Output pixel width  (default: 4096, or auto from terrain_class.png).
-    --height H  Output pixel height (default: 4096, or auto from terrain_class.png).
+    --width W      Output pixel width  (default: 4096, or auto from terrain_class.png).
+    --height H     Output pixel height (default: 4096, or auto from terrain_class.png).
+    --no-terrain   Skip terrain_class.png background and use a solid color.
+    --bg-color     Hex background color if --no-terrain is used (default: #0f172a).
 
 Dependencies: Pillow
 """

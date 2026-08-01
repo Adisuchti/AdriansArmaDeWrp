@@ -181,6 +181,19 @@ async function loadMap(mapName) {
     }
     ctx.putImageData(visualData, 0, 0);
 
+    // Overlay roads if available
+    try {
+      const roadsImage = new Image();
+      await new Promise((resolve, reject) => {
+        roadsImage.onload = resolve;
+        roadsImage.onerror = reject;
+        roadsImage.src = `map/${mapName}/roads.png`;
+      });
+      ctx.drawImage(roadsImage, 0, 0, mapCanvas.width, mapCanvas.height);
+    } catch (e) {
+      console.log(`No roads.png found for ${mapName}, skipping roadmap overlay.`);
+    }
+
     // 3. Load terrain class texture (painted onto the 3D terrain)
     terrainTextureImage = new Image();
     try {
@@ -1241,7 +1254,8 @@ async function render3D() {
   };
   
   // Hide loading screen when done setting up
-  document.getElementById('loading-overlay').classList.add('hidden');
+  const loader = document.getElementById('loading-overlay');
+  if (loader) loader.classList.add('hidden');
 }
 
 async function loadMission(missionName) {

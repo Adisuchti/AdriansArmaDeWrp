@@ -266,6 +266,12 @@ namespace WrpAnalyzer
                                                 sw.Write($"      \"w\": 1.0,\n");
                                                 sw.Write($"      \"l\": 1.0,\n");
                                                 sw.Write($"      \"h\": 1.0,\n");
+                                                sw.Write($"      \"bminX\": -0.5,\n");
+                                                sw.Write($"      \"bminY\": -0.5,\n");
+                                                sw.Write($"      \"bminZ\": -0.5,\n");
+                                                sw.Write($"      \"bmaxX\": 0.5,\n");
+                                                sw.Write($"      \"bmaxY\": 0.5,\n");
+                                                sw.Write($"      \"bmaxZ\": 0.5,\n");
                                                 sw.Write($"      \"scaleX\": {scaleX.ToString(CultureInfo.InvariantCulture)},\n");
                                                 sw.Write($"      \"scaleY\": {scaleY.ToString(CultureInfo.InvariantCulture)},\n");
                                                 sw.Write($"      \"scaleZ\": {scaleZ.ToString(CultureInfo.InvariantCulture)}\n");
@@ -483,13 +489,15 @@ namespace WrpAnalyzer
             Console.WriteLine($"Found {neededModels.Count} unique models on {mapName}.");
 
             var p3dToPboMap = IndexPbos(armaDir);
-            var modelDimensions = new Dictionary<string, (float w, float l, float h)>(StringComparer.OrdinalIgnoreCase);
+            var modelDimensions = new Dictionary<string, (float w, float l, float h, float minX, float minY, float minZ, float maxX, float maxY, float maxZ)>(StringComparer.OrdinalIgnoreCase);
 
             int processed = 0;
             Console.WriteLine("Calculating exact physical bounds from Geometry LOD vertice extremes...");
             foreach (var modelBaseName in neededModels)
             {
                 float width = 1f, length = 1f, height = 1f;
+                float oMinX = -0.5f, oMinY = -0.5f, oMinZ = -0.5f;
+                float oMaxX = 0.5f, oMaxY = 0.5f, oMaxZ = 0.5f;
 
                 if (p3dToPboMap.TryGetValue(modelBaseName, out string pboModelPath))
                 {
@@ -521,6 +529,8 @@ namespace WrpAnalyzer
                                             width = maxX - minX;
                                             height = maxY - minY;
                                             length = maxZ - minZ;
+                                            oMinX = minX; oMinY = minY; oMinZ = minZ;
+                                            oMaxX = maxX; oMaxY = maxY; oMaxZ = maxZ;
                                         }
                                         else 
                                         {
@@ -528,6 +538,8 @@ namespace WrpAnalyzer
                                             width = p3d.ODOL.ModelInfo.BboxMax.X - p3d.ODOL.ModelInfo.BboxMin.X;
                                             height = p3d.ODOL.ModelInfo.BboxMax.Y - p3d.ODOL.ModelInfo.BboxMin.Y;
                                             length = p3d.ODOL.ModelInfo.BboxMax.Z - p3d.ODOL.ModelInfo.BboxMin.Z;
+                                            oMinX = p3d.ODOL.ModelInfo.BboxMin.X; oMinY = p3d.ODOL.ModelInfo.BboxMin.Y; oMinZ = p3d.ODOL.ModelInfo.BboxMin.Z;
+                                            oMaxX = p3d.ODOL.ModelInfo.BboxMax.X; oMaxY = p3d.ODOL.ModelInfo.BboxMax.Y; oMaxZ = p3d.ODOL.ModelInfo.BboxMax.Z;
                                         }
                                     }
                                 }
@@ -542,7 +554,7 @@ namespace WrpAnalyzer
                 if (height <= 0.01f) height = 1f;
                 if (length <= 0.01f) length = 1f;
                 
-                modelDimensions[modelBaseName] = (width, length, height);
+                modelDimensions[modelBaseName] = (width, length, height, oMinX, oMinY, oMinZ, oMaxX, oMaxY, oMaxZ);
                 processed++;
                 if (processed % 100 == 0) Console.WriteLine($"Processed {processed}/{neededModels.Count} models...");
             }
@@ -557,6 +569,12 @@ namespace WrpAnalyzer
                     obj["w"] = dims.w;
                     obj["l"] = dims.l;
                     obj["h"] = dims.h;
+                    obj["bminX"] = dims.minX;
+                    obj["bminY"] = dims.minY;
+                    obj["bminZ"] = dims.minZ;
+                    obj["bmaxX"] = dims.maxX;
+                    obj["bmaxY"] = dims.maxY;
+                    obj["bmaxZ"] = dims.maxZ;
                 }
                 
                 objCounter++;
@@ -614,13 +632,15 @@ namespace WrpAnalyzer
             Console.WriteLine($"Found {neededModels.Count} unique models globally.");
 
             var p3dToPboMap = IndexPbos(armaDir);
-            var modelDimensions = new Dictionary<string, (float w, float l, float h)>(StringComparer.OrdinalIgnoreCase);
+            var modelDimensions = new Dictionary<string, (float w, float l, float h, float minX, float minY, float minZ, float maxX, float maxY, float maxZ)>(StringComparer.OrdinalIgnoreCase);
 
             int processed = 0;
             Console.WriteLine("Calculating exact physical bounds from Geometry LOD vertice extremes (this is done only once per unique object)...");
             foreach (var modelBaseName in neededModels)
             {
                 float width = 1f, length = 1f, height = 1f;
+                float oMinX = -0.5f, oMinY = -0.5f, oMinZ = -0.5f;
+                float oMaxX = 0.5f, oMaxY = 0.5f, oMaxZ = 0.5f;
 
                 if (p3dToPboMap.TryGetValue(modelBaseName, out string pboModelPath))
                 {
@@ -652,12 +672,16 @@ namespace WrpAnalyzer
                                             width = maxX - minX;
                                             height = maxY - minY;
                                             length = maxZ - minZ;
+                                            oMinX = minX; oMinY = minY; oMinZ = minZ;
+                                            oMaxX = maxX; oMaxY = maxY; oMaxZ = maxZ;
                                         }
                                         else 
                                         {
                                             width = p3d.ODOL.ModelInfo.BboxMax.X - p3d.ODOL.ModelInfo.BboxMin.X;
                                             height = p3d.ODOL.ModelInfo.BboxMax.Y - p3d.ODOL.ModelInfo.BboxMin.Y;
                                             length = p3d.ODOL.ModelInfo.BboxMax.Z - p3d.ODOL.ModelInfo.BboxMin.Z;
+                                            oMinX = p3d.ODOL.ModelInfo.BboxMin.X; oMinY = p3d.ODOL.ModelInfo.BboxMin.Y; oMinZ = p3d.ODOL.ModelInfo.BboxMin.Z;
+                                            oMaxX = p3d.ODOL.ModelInfo.BboxMax.X; oMaxY = p3d.ODOL.ModelInfo.BboxMax.Y; oMaxZ = p3d.ODOL.ModelInfo.BboxMax.Z;
                                         }
                                     }
                                 }
@@ -670,7 +694,7 @@ namespace WrpAnalyzer
                 if (height <= 0.01f) height = 1f;
                 if (length <= 0.01f) length = 1f;
                 
-                modelDimensions[modelBaseName] = (width, length, height);
+                modelDimensions[modelBaseName] = (width, length, height, oMinX, oMinY, oMinZ, oMaxX, oMaxY, oMaxZ);
                 processed++;
                 if (processed % 100 == 0) Console.WriteLine($"Processed {processed}/{neededModels.Count} models...");
             }
@@ -706,7 +730,7 @@ namespace WrpAnalyzer
                                 currentModel = (string)reader.Value;
                                 writer.WriteValue(currentModel);
                             }
-                            else if (propName == "w" || propName == "l" || propName == "h")
+                            else if (propName == "w" || propName == "l" || propName == "h" || propName == "bminX" || propName == "bminY" || propName == "bminZ" || propName == "bmaxX" || propName == "bmaxY" || propName == "bmaxZ")
                             {
                                 writer.WritePropertyName(propName);
                                 reader.Read(); // Consume the old value
@@ -716,10 +740,18 @@ namespace WrpAnalyzer
                                     if (propName == "w") writer.WriteValue(dims.w);
                                     else if (propName == "l") writer.WriteValue(dims.l);
                                     else if (propName == "h") writer.WriteValue(dims.h);
+                                    else if (propName == "bminX") writer.WriteValue(dims.minX);
+                                    else if (propName == "bminY") writer.WriteValue(dims.minY);
+                                    else if (propName == "bminZ") writer.WriteValue(dims.minZ);
+                                    else if (propName == "bmaxX") writer.WriteValue(dims.maxX);
+                                    else if (propName == "bmaxY") writer.WriteValue(dims.maxY);
+                                    else if (propName == "bmaxZ") writer.WriteValue(dims.maxZ);
                                 }
                                 else
                                 {
-                                    writer.WriteValue(1.0); // Fallback
+                                    if (propName == "w" || propName == "l" || propName == "h") writer.WriteValue(1.0);
+                                    else if (propName.StartsWith("bmin")) writer.WriteValue(-0.5);
+                                    else writer.WriteValue(0.5);
                                 }
                             }
                             else

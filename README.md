@@ -17,7 +17,10 @@ Check out a live interactive demo of the 3D map viewer showing the town of Elekt
 
 ## Prerequisites
 - **Arma 3** (and any desired mods like CUP) installed.
-- **Python 3.8+** (for the web server and intermediate scripts).
+- **Python 3.8+** (for the web server and intermediate scripts). Requires `Pillow`, `numpy`, and `matplotlib`.
+  ```bash
+  pip install Pillow numpy matplotlib
+  ```
 - **PowerShell** (for the automated pipeline).
 - **.NET 10.0 SDK** (for compiling the C# WRP Analyzer).
 
@@ -76,7 +79,23 @@ cd scripts
 .\process_map.ps1 -MapName "Altis"
 ```
 
-### 3. Start the Web Viewer
+### 3. Generate Topographic SVG Maps (Optional)
+Generates a highly detailed, 2D vector map (`.svg`) with contour lines (e.g. 10m intervals), roads, and landmass.
+```bash
+cd scripts
+python generate_svg.py C:\Users\YourName\Documents\Arma3MapExports\Altis_WRP
+```
+*Note: This script requires `numpy` and `matplotlib` to be installed.*
+
+### 4. Generate Top-Down PNG Maps (Optional)
+Generates a high-resolution top-down raster map (`.png`) representing terrain surface masks, roads, and object placements as coloured pixels and polygons.
+```bash
+cd scripts
+python render_topdown.py C:\Users\YourName\Documents\Arma3MapExports\Altis_WRP --no-terrain --bg-color "#1e1e1e"
+```
+*Tip: Omit `--no-terrain` to automatically use `terrain_class.png` as the background if it was extracted.*
+
+### 5. Start the Web Viewer
 ```bash
 cd web
 python server.py
