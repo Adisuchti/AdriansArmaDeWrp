@@ -39,6 +39,10 @@ namespace WrpAnalyzer
             {
                 ExtractMaps(args[1], args[2], args[3], args[4]);
             }
+            else if (command == "list_maps" && args.Length >= 2)
+            {
+                ListMaps(args[1]);
+            }
             else if (command == "voxelize" && args.Length >= 4)
             {
                 VoxelizeMap(args[1], args[2], args[3]);
@@ -66,6 +70,7 @@ namespace WrpAnalyzer
             Console.WriteLine("Usage:");
             Console.WriteLine("  WrpAnalyzer extract <arma3_dir> <extracted_data_dir> <exports_dir>");
             Console.WriteLine("  WrpAnalyzer extract_single <arma3_dir> <extracted_data_dir> <exports_dir> <map_name>");
+            Console.WriteLine("  WrpAnalyzer list_maps <arma3_dir>");
             Console.WriteLine("  WrpAnalyzer calc_dims <arma3_dir> <exports_dir> <map_name>");
             Console.WriteLine("  WrpAnalyzer voxelize <arma3_dir> <exports_dir> <map_name>");
         }
@@ -1232,6 +1237,33 @@ namespace WrpAnalyzer
                                 }
                             }
                             break; // Found roads for this map
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        static void ListMaps(string armaDir)
+        {
+            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories);
+            HashSet<string> processedMaps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var pboPath in pboFiles)
+            {
+                try
+                {
+                    using (var pbo = new PBO(pboPath))
+                    {
+                        foreach (var file in pbo.Files)
+                        {
+                            if (file.FileName.EndsWith(".wrp", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string mapName = Path.GetFileNameWithoutExtension(file.FileName);
+                                if (processedMaps.Contains(mapName)) continue;
+                                processedMaps.Add(mapName);
+                                Console.WriteLine($"- {mapName} (in {Path.GetFileName(pboPath)})");
+                            }
                         }
                     }
                 }

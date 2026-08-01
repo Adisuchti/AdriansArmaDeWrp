@@ -607,20 +607,26 @@ async function render3D() {
     let cat = "clutter";
     const cls = obj.class.toLowerCase();
     
-    if (classificationData[cls]) {
+    // Extract base model name without extension to use for classification lookup
+    let baseName = obj.model ? obj.model.toLowerCase() : cls.split('\\').pop().split('/').pop();
+    if (baseName.endsWith('.p3d')) baseName = baseName.substring(0, baseName.length - 4);
+
+    if (classificationData[baseName]) {
+      cat = classificationData[baseName];
+    } else if (classificationData[cls]) {
       cat = classificationData[cls];
-    } else if (cls.startsWith('t_') || cls.startsWith('b_')) {
+    } else if (baseName.startsWith('t_') || baseName.startsWith('b_')) {
       cat = "nature";
-    } else if (cls.startsWith('c_')) {
+    } else if (baseName.startsWith('c_')) {
       cat = "clutter";
     } else if (obj.category && categoryColors[obj.category]) {
       cat = obj.category;
     } else {
-      if (cls.includes('tree') || cls.includes('bush')) cat = "nature";
-      else if (cls.includes('road') || cls.includes('track')) cat = "roads";
-      else if (cls.includes('wall') || cls.includes('fence') || cls.includes('hide')) cat = "structures";
-      else if (cls.includes('house') || cls.includes('building') || cls.includes('office') || cls.includes('shop')) cat = "buildings";
-      else if (cls.includes('lamp') || cls.includes('light')) cat = "lamps";
+      if (baseName.includes('tree') || baseName.includes('bush')) cat = "nature";
+      else if (baseName.includes('road') || baseName.includes('track')) cat = "roads";
+      else if (baseName.includes('wall') || baseName.includes('fence') || baseName.includes('hide')) cat = "structures";
+      else if (baseName.includes('house') || baseName.includes('building') || baseName.includes('office') || baseName.includes('shop')) cat = "buildings";
+      else if (baseName.includes('lamp') || baseName.includes('light')) cat = "lamps";
     }
 
     // Determine model filename

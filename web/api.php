@@ -3,12 +3,45 @@
 header('Access-Control-Allow-Origin: *');
 
 $action = $_GET['action'] ?? '';
-$map = $_GET['map'] ?? '';
 
-if (!$action || !$map) {
+if (!$action) {
     http_response_code(400);
     header('Content-Type: application/json');
-    die(json_encode(["error" => "Missing action or map parameters"]));
+    die(json_encode(["error" => "Missing action parameter"]));
+}
+
+if ($action === 'maps') {
+    $mapDir = __DIR__ . '/map';
+    $maps = [];
+    if (is_dir($mapDir)) {
+        $files = scandir($mapDir);
+        foreach ($files as $file) {
+            if ($file !== '.' && $file !== '..' && is_dir($mapDir . '/' . $file)) {
+                $maps[] = $file;
+            }
+        }
+    }
+    header('Content-Type: application/json');
+    echo json_encode(['maps' => array_values($maps)]);
+    exit;
+}
+
+if ($action === 'missions') {
+    $missionsFile = __DIR__ . '/missions/missions.json';
+    header('Content-Type: application/json');
+    if (file_exists($missionsFile)) {
+        echo file_get_contents($missionsFile);
+    } else {
+        echo json_encode(['missions' => []]);
+    }
+    exit;
+}
+
+$map = $_GET['map'] ?? '';
+if (!$map) {
+    http_response_code(400);
+    header('Content-Type: application/json');
+    die(json_encode(["error" => "Missing map parameter"]));
 }
 
 $minX = isset($_GET['minX']) ? (float)$_GET['minX'] : null;
