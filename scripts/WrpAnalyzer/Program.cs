@@ -78,7 +78,9 @@ namespace WrpAnalyzer
         static Dictionary<string, string> IndexPbos(string armaDir)
         {
             Console.WriteLine("Indexing PBOs for models (this may take a minute)...");
-            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories);
+            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories)
+                .Where(p => !p.Substring(armaDir.Length).Contains("!Workshop", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             var p3dToPboMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             
             foreach (var pboPath in pboFiles)
@@ -105,7 +107,9 @@ namespace WrpAnalyzer
         static Dictionary<string, string> BuildStringTable(string armaDir)
         {
             Console.WriteLine("Indexing stringtable.xml files for translations...");
-            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories);
+            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories)
+                .Where(p => !p.Substring(armaDir.Length).Contains("!Workshop", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             var stringTable = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             
             foreach (var pboPath in pboFiles)
@@ -153,7 +157,9 @@ namespace WrpAnalyzer
             var stringTable = BuildStringTable(armaDir);
             
             Console.WriteLine("Searching for map PBOs in: " + armaDir);
-            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories);
+            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories)
+                .Where(p => !p.Substring(armaDir.Length).Contains("!Workshop", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             Console.WriteLine($"Found {pboFiles.Length} potential map PBOs.");
             
             string pythonScript = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "convert_pngs.py");
@@ -1255,7 +1261,9 @@ namespace WrpAnalyzer
 
         static void ListMaps(string armaDir)
         {
-            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories);
+            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories)
+                .Where(p => !p.Substring(armaDir.Length).Contains("!Workshop", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             HashSet<string> processedMaps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var pboPath in pboFiles)
