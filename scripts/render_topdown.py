@@ -161,8 +161,8 @@ def render_objects(draw, objects_file: str, meta: dict, classification: dict,
                     colour = CATEGORY_COLOURS.get(cat, CATEGORY_COLOURS["clutter"])
 
                     # Real-world dimensions in meters, with scale
-                    w = (obj.get("w") or 1) * (obj.get("scaleX") or 1)
-                    l = (obj.get("l") or 1) * (obj.get("scaleZ") or 1)
+                    w = abs((obj.get("w") or 1) * (obj.get("scaleX") or 1))
+                    l = abs((obj.get("l") or 1) * (obj.get("scaleZ") or 1))
 
                     # Convert to pixels
                     pix_w = w / map_size * img_w

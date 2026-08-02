@@ -275,8 +275,8 @@ def render_objects(f, objects_file: str, map_size: float, classification: dict):
                 if x is not None and y is not None:
                     cat = classify_object(obj.get("class", ""), classification)
                     
-                    w = (obj.get("w") or 1) * (obj.get("scaleX") or 1)
-                    l = (obj.get("l") or 1) * (obj.get("scaleZ") or 1)
+                    w = abs((obj.get("w") or 1) * (obj.get("scaleX") or 1))
+                    l = abs((obj.get("l") or 1) * (obj.get("scaleZ") or 1))
                     
                     # Artificially boost size of very small objects so they are visible
                     w = max(w, 2.0)

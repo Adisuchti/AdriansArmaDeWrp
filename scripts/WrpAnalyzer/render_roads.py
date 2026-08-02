@@ -177,46 +177,18 @@ def render_roads(roadnet_json_path, output_dir, web_dir=None):
         print(f"Loaded {len(shapes)} shapes and {len(records)} DBF records.")
         
         if len(shapes) > 0 and len(shapes) == len(records):
-            # Calculate UTM offsets automatically
-            all_x = [pt[0] for s in shapes for pt in s["points"]]
-            all_y = [pt[1] for s in shapes for pt in s["points"]]
-            min_x = min(all_x) if all_x else 0
-            min_y = min(all_y) if all_y else 0
-            
-            offset_x = (int(min_x) // 100000) * 100000
-            offset_y = (int(min_y) // 100000) * 100000
-            print(f"Auto-detected UTM coordinates: min_x={min_x:.1f}, min_y={min_y:.1f}. Applying offsets: offset_x={offset_x}, offset_y={offset_y}")
-            
             for i, shape in enumerate(shapes):
                 record = records[i]
                 road_id = int(record.get('ID', 1))
                 road_meta = road_classes.get(road_id, {"type": "road", "width": 10.0})
                 
-                # Apply offset to local coordinates
-                local_pts = [[pt[0] - offset_x, pt[1] - offset_y] for pt in shape["points"]]
-                
                 roads_data.append({
                     "type": road_meta["type"],
                     "width": road_meta["width"],
-                    "pts": local_pts,
+                    "pts": shape["points"],
                     "p3d": f"roads_f\\roads_ae\\{record.get('__LAYER', '')}_road_{road_id}.p3d"
                 })
-                
-            # Overwrite roadnet.json with full shapefile road network
-            roadnet_export = {
-                "mapSize": map_size,
-                "roads": roads_data
-            }
-            with open(roadnet_json_path, 'w') as f:
-                json.dump(roadnet_export, f)
-            print(f"Updated roadnet.json with {len(roads_data)} shapefile roads.")
-            
-            # Also copy to the web viewer directory
-            if web_dir and os.path.exists(web_dir):
-                web_roadnet_path = os.path.join(web_dir, "roadnet.json")
-                with open(web_roadnet_path, 'w') as f:
-                    json.dump(roadnet_export, f)
-                print(f"Copied updated roadnet.json to {web_roadnet_path}")
+
         else:
             print("Warning: Shapefile and DBF record count mismatch, falling back to WRP roadnet.")
             use_shapefiles = False
@@ -242,6 +214,43 @@ def render_roads(roadnet_json_path, output_dir, web_dir=None):
     if not roads_data:
         print("No road data found. skipping rendering roads.png.")
         return
+
+    # Auto-detect UTM offsets and apply globally
+    all_x = [pt[0] for r in roads_data for pt in r.get("pts", [])]
+    all_y = [pt[1] for r in roads_data for pt in r.get("pts", [])]
+    
+    modified_coords = False
+    if all_x and all_y:
+        max_x = max(all_x)
+        max_y = max(all_y)
+        
+        offset_x = (int(max_x) // 100000) * 100000
+        offset_y = (int(max_y) // 100000) * 100000
+        
+        if offset_x > 0 or offset_y > 0:
+            print(f"Auto-detected UTM coordinates: max_x={max_x:.1f}, max_y={max_y:.1f}. Applying offsets: offset_x={offset_x}, offset_y={offset_y}")
+            for link in roads_data:
+                if "pts" in link:
+                    link["pts"] = [[pt[0] - offset_x, pt[1] - offset_y] for pt in link["pts"]]
+            modified_coords = True
+
+    # Overwrite roadnet.json if we came from shapefiles OR if we fixed UTM offsets
+    if use_shapefiles or modified_coords:
+        roadnet_export = {
+            "mapSize": map_size,
+            "roads": roads_data
+        }
+        with open(roadnet_json_path, 'w') as f:
+            json.dump(roadnet_export, f)
+        print(f"Updated roadnet.json with normalized roads ({len(roads_data)} links).")
+        
+        # Also copy to the web viewer directory
+        if web_dir and os.path.exists(web_dir):
+            web_roadnet_path = os.path.join(web_dir, "roadnet.json")
+            with open(web_roadnet_path, 'w') as f:
+                json.dump(roadnet_export, f)
+            print(f"Copied updated roadnet.json to {web_roadnet_path}")
+
 
     # Render PNG
     img_size = 2048

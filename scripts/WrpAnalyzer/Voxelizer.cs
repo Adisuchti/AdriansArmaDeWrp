@@ -73,7 +73,7 @@ namespace WrpAnalyzer
             
             // Voxelize vertices
             foreach (var v in geometryLod.Vertices)
-                AddVoxel(v.X, v.Y, v.Z);
+                AddVoxel(v.X, v.Y, -v.Z);
             
             // Voxelize triangle surfaces — dense sampling for thin/curved surfaces
             if (geometryLod.Polygons != null && geometryLod.Polygons.Faces != null)
@@ -88,9 +88,9 @@ namespace WrpAnalyzer
                             var tv1 = geometryLod.Vertices[face.VertexIndices[i]];
                             var tv2 = geometryLod.Vertices[face.VertexIndices[i + 1]];
                             
-                            Vector3 p0 = new Vector3(tv0.X, tv0.Y, tv0.Z);
-                            Vector3 p1 = new Vector3(tv1.X, tv1.Y, tv1.Z);
-                            Vector3 p2 = new Vector3(tv2.X, tv2.Y, tv2.Z);
+                            Vector3 p0 = new Vector3(tv0.X, tv0.Y, -tv0.Z);
+                            Vector3 p1 = new Vector3(tv1.X, tv1.Y, -tv1.Z);
+                            Vector3 p2 = new Vector3(tv2.X, tv2.Y, -tv2.Z);
                             
                             float step = Math.Max(0.05f, voxelSize / 8.0f);
                             Vector3 v01 = p1 - p0;

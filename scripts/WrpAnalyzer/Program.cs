@@ -301,8 +301,17 @@ namespace WrpAnalyzer
                                                 float scaleY = (float)Math.Sqrt(obj.Transform.Matrix.M21 * obj.Transform.Matrix.M21 + obj.Transform.Matrix.M22 * obj.Transform.Matrix.M22 + obj.Transform.Matrix.M23 * obj.Transform.Matrix.M23);
                                                 float scaleZ = (float)Math.Sqrt(obj.Transform.Matrix.M31 * obj.Transform.Matrix.M31 + obj.Transform.Matrix.M32 * obj.Transform.Matrix.M32 + obj.Transform.Matrix.M33 * obj.Transform.Matrix.M33);
                                                 
-                                                float pitch = (float)(Math.Asin(Math.Max(-1.0, Math.Min(1.0, obj.Transform.Matrix.M32 / scaleZ))) * 180.0 / Math.PI);
-                                                float roll = (float)(Math.Atan2(obj.Transform.Matrix.M12 / scaleX, obj.Transform.Matrix.M22 / scaleY) * 180.0 / Math.PI);
+                                                float det = obj.Transform.Matrix.M11 * (obj.Transform.Matrix.M22 * obj.Transform.Matrix.M33 - obj.Transform.Matrix.M23 * obj.Transform.Matrix.M32) -
+                                                            obj.Transform.Matrix.M12 * (obj.Transform.Matrix.M21 * obj.Transform.Matrix.M33 - obj.Transform.Matrix.M23 * obj.Transform.Matrix.M31) +
+                                                            obj.Transform.Matrix.M13 * (obj.Transform.Matrix.M21 * obj.Transform.Matrix.M32 - obj.Transform.Matrix.M22 * obj.Transform.Matrix.M31);
+                                                if (det < 0) scaleX = -scaleX;
+
+                                                float rot12 = scaleX != 0 ? obj.Transform.Matrix.M12 / scaleX : 0;
+                                                float rot22 = scaleY != 0 ? obj.Transform.Matrix.M22 / scaleY : 0;
+                                                float rot32 = scaleZ != 0 ? obj.Transform.Matrix.M32 / scaleZ : 0;
+
+                                                float pitch = (float)(Math.Asin(Math.Max(-1.0, Math.Min(1.0, rot32))) * 180.0 / Math.PI);
+                                                float roll = (float)(Math.Atan2(rot12, rot22) * 180.0 / Math.PI);
                                                 
                                                 if (float.IsNaN(pitch) || float.IsInfinity(pitch)) pitch = 0;
                                                 if (float.IsNaN(roll) || float.IsInfinity(roll)) roll = 0;

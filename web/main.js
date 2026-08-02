@@ -784,37 +784,32 @@ async function render3D() {
     let geo = boxGeo;
     let mat = new THREE.MeshStandardMaterial({ color: categoryColors[group.category] });
     let isModelLoaded = false;
-    const isRoad = group.category === 'roads' || glbFile.includes('procedural_road');
 
-    if (isRoad) {
-      // Roads are now handled via roadnet.json polylines — skip old WRP road objects
-      continue;
-    } else {
-      try {
-        // Attempt to load GLTF
-        const gltf = await gltfLoader.loadAsync(`models/${glbFile}`);
+    try {
+      // Attempt to load GLTF
+      const gltf = await gltfLoader.loadAsync(`models/${glbFile}`);
 
-        // Find the first mesh in the GLTF scene
-        let loadedMesh = null;
-        gltf.scene.traverse((child) => {
-          if (child.isMesh && !loadedMesh) {
-            loadedMesh = child;
-          }
-        });
-
-        if (loadedMesh) {
-          geo = loadedMesh.geometry;
-          mat = new THREE.MeshStandardMaterial({ 
-              color: categoryColors[group.category],
-              roughness: 0.7,
-              metalness: 0.1,
-              flatShading: true
-          });
-          isModelLoaded = true;
+      // Find the first mesh in the GLTF scene
+      let loadedMesh = null;
+      gltf.scene.traverse((child) => {
+        if (child.isMesh && !loadedMesh) {
+          loadedMesh = child;
         }
-      } catch (e) {
-        console.warn(`Could not load model ${glbFile}, using bounding box fallback.`);
+      });
+
+      if (loadedMesh) {
+        geo = loadedMesh.geometry;
+        mat = new THREE.MeshStandardMaterial({ 
+            color: categoryColors[group.category],
+            roughness: 0.7,
+            metalness: 0.1,
+            flatShading: true,
+            side: THREE.DoubleSide
+        });
+        isModelLoaded = true;
       }
+    } catch (e) {
+      console.warn(`Could not load model ${glbFile}, using bounding box fallback.`);
     }
 
     const instancedMesh = new THREE.InstancedMesh(geo, mat, count);
@@ -840,28 +835,39 @@ async function render3D() {
       const sZ = (obj.scaleZ !== undefined ? obj.scaleZ : 1);
 
       const pitch = obj.pitch ? THREE.MathUtils.degToRad(-obj.pitch) : 0;
-      const yaw = THREE.MathUtils.degToRad(-obj.dir);
+      // Add Math.PI (180 degrees) to fix facing direction caused by GLTF Z-flip
+      const yaw = THREE.MathUtils.degToRad(-obj.dir) + Math.PI;
       const roll = obj.roll ? THREE.MathUtils.degToRad(-obj.roll) : 0;
 
-      if (isModelLoaded) {
+      if (isModelLoaded && obj.transform) {
+        const m = obj.transform;
+        dummy.matrix.set(
+            -m[0],  m[3],  m[6], posX,
+            -m[1],  m[4],  m[7], posY,
+             m[2], -m[5], -m[8], posZ,
+               0,     0,     0, 1
+        );
+      } else if (isModelLoaded) {
         // Usually models pivot on the bottom
-        dummy.scale.set(1, 1, 1);
+        dummy.scale.set(sX, sY, sZ);
         dummy.position.set(posX, posY, posZ);
         dummy.rotation.set(pitch, yaw, roll, 'YXZ');
+        dummy.updateMatrix();
       } else {
         // Box needs to be scaled up and shifted by half height
         dummy.scale.set(w * sX, h * sY, l * sZ);
         dummy.position.set(posX, posY, posZ);
         dummy.rotation.set(pitch, yaw, roll, 'YXZ');
+        dummy.updateMatrix();
       }
 
-      dummy.updateMatrix();
       instancedMesh.setMatrixAt(index, dummy.matrix);
     });
 
     instancedMesh.instanceMatrix.needsUpdate = true;
     instancedMesh.userData.objects = group.objects;
     threeScene.add(instancedMesh);
+    if (!categoryMeshes[group.category]) categoryMeshes[group.category] = [];
     categoryMeshes[group.category].push(instancedMesh);
     allInstancedMeshes.push(instancedMesh);
   }

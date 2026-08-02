@@ -6,6 +6,7 @@ This project provides a complete data pipeline to extract, convert, and visualiz
 ## Live Demo
 Check out a live interactive demo of the 3D map viewer showing the town of Elektro on the Chernarus map:  
 **[View Live Demo: Chernarus - Elektro](https://publictools.cinder9.com/3dViewer/?map=chernarus_summer_WRP&x=0.5425&y=0.7623&w=0.2112&h=0.1522)**
+Note: if the web viewer does not show any models, refresh the page.
 
 ## Features
 - Parses proprietary .wrp (OPRW v25) map files to extract terrain and object data.
@@ -91,7 +92,7 @@ python generate_svg.py C:\Users\YourName\Documents\Arma3MapExports\Altis_WRP
 Generates a high-resolution top-down raster map (`.png`) representing terrain surface masks, roads, and object placements as coloured pixels and polygons.
 ```bash
 cd scripts
-python render_topdown.py C:\Users\YourName\Documents\Arma3MapExports\Altis_WRP --no-terrain --bg-color "#1e1e1e"
+python render_topdown.py C:\Users\YourName\Documents\Arma3MapExports\Altis_WRP --no-terrain --bg-color "#1e1e1e" --width 16384 --height 16384
 ```
 *Tip: Omit `--no-terrain` to automatically use `terrain_class.png` as the background if it was extracted.*
 
