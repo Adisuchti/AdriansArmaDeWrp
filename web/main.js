@@ -526,6 +526,21 @@ async function render3D() {
   terrainMesh.receiveShadow = true;
   threeScene.add(terrainMesh);
 
+  // Add water plane (sea level is at Y = 0)
+  const waterGeo = new THREE.PlaneGeometry(selMetersWidth, selMetersHeight);
+  waterGeo.rotateX(-Math.PI / 2); // Make it flat on the ground
+  const waterMat = new THREE.MeshStandardMaterial({
+    color: 0x0284c7, // matches the blue used in render_topdown.py
+    transparent: true,
+    opacity: 0.6,
+    roughness: 0.1,
+    metalness: 0.1,
+    depthWrite: false // Prevents sorting issues with transparent materials
+  });
+  const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+  waterMesh.position.y = 0;
+  threeScene.add(waterMesh);
+
   // 4. Fetch Objects for this region from the server
   // Center of our Arma world selection box
   const armaCenterX = armaMinX + selMetersWidth / 2;

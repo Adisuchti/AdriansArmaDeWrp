@@ -82,6 +82,61 @@ def load_meta(map_dir: str):
     return {}
 
 
+def render_water(canvas, map_dir: str, meta: dict, img_w: int, img_h: int):
+    """Render a blue tint over areas where elevation <= 0."""
+    heightmap_path = os.path.join(map_dir, "heightmap.png")
+    if not os.path.exists(heightmap_path):
+        return canvas
+
+    print(f"Rendering water from {heightmap_path}...")
+    min_height = meta.get("minHeight", -200)
+    max_height = meta.get("maxHeight", 500)
+
+    try:
+        import numpy as np
+    except ImportError:
+        print("  (numpy not installed — skipping water)")
+        return canvas
+
+    img = Image.open(heightmap_path)
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    img_arr = np.array(img, dtype=np.float32)
+    r = img_arr[:, :, 0]
+    g = img_arr[:, :, 1]
+    b = img_arr[:, :, 2]
+
+    is_grayscale = np.all(r == g) and np.all(g == b)
+    if is_grayscale:
+        normalized = r / 255.0
+    else:
+        val_24 = (r * 65536.0) + (g * 256.0) + b
+        normalized = val_24 / 16777215.0
+
+    elevations = min_height + (normalized * (max_height - min_height))
+
+    # Water mask where elevation <= 0
+    # Use float32 for math, then convert to uint8. 
+    # alpha 150 out of 255 for a nice blend with the terrain.
+    desired_alpha = 150
+    water_mask_np = (elevations <= 0.0).astype(np.float32) * desired_alpha
+    water_mask_img = Image.fromarray(water_mask_np.astype(np.uint8), mode='L')
+
+    if water_mask_img.size != (img_w, img_h):
+        water_mask_img = water_mask_img.resize((img_w, img_h), Image.LANCZOS)
+
+    # #0284c7 (light blue)
+    water_color_rgb = (2, 132, 199)
+    water_color_layer = Image.new("RGB", (img_w, img_h), water_color_rgb)
+    
+    if canvas.mode not in ("RGB", "RGBA"):
+        canvas = canvas.convert("RGB")
+        
+    canvas.paste(water_color_layer, mask=water_mask_img)
+    return canvas
+
+
 def render_objects(draw, objects_file: str, meta: dict, classification: dict,
                    img_w: int, img_h: int):
     """Stream objects.json and draw each object as a coloured dot."""
@@ -352,12 +407,15 @@ def main():
         bg_rgb = tuple(int(bg_hex[i:i+2], 16) for i in (0, 2, 4))
         canvas = Image.new("RGB", (img_w, img_h), bg_rgb)
 
-    draw = ImageDraw.Draw(canvas)
-
     # ── 2. Load metadata ──────────────────────────────────────────────────
     meta = load_meta(map_dir)
     if meta:
         print(f"Map size: {meta.get('mapSize', '?')}m")
+
+    # ── 2.5. Render water ─────────────────────────────────────────────────
+    canvas = render_water(canvas, map_dir, meta, img_w, img_h)
+
+    draw = ImageDraw.Draw(canvas)
 
     # ── 3. Render objects ─────────────────────────────────────────────────
     if not args.no_objects:
