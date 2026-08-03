@@ -302,7 +302,25 @@ def convert_geography(base_dir, width, height):
         if val == 0:
             color = (30, 30, 30)
         else:
-            color = generate_deterministic_color(i)
+            avg_depth = (min_depth + max_depth) / 2.0
+            
+            # Map average depth (0 to 3) to a greyscale value (e.g. 50 to 220)
+            depth_val = int(50 + (170 * (avg_depth / 3.0)))
+            base_depth_color = (depth_val, depth_val, depth_val)
+            
+            colors_to_mix = [base_depth_color]
+            
+            if is_forest:
+                colors_to_mix.append((0, 120, 0)) # Dark green
+                
+            if is_road:
+                colors_to_mix.append((200, 80, 80)) # Noticeable road color (reddish)
+                
+            r = sum(c[0] for c in colors_to_mix) // len(colors_to_mix)
+            g = sum(c[1] for c in colors_to_mix) // len(colors_to_mix)
+            b = sum(c[2] for c in colors_to_mix) // len(colors_to_mix)
+            
+            color = (r, g, b)
             
         color_map[val] = color
         

@@ -1,98 +1,113 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="./vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Arma 3 Map Demonstrator</title>
-    <link rel="stylesheet" href="./style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-  </head>
-  <body>
-    <!-- Loading Overlay -->
-    <div id="loading-overlay" class="hidden glass-panel">
-      <h3 style="margin: 0; color: #fff;">Loading 3D View</h3>
-      <div style="width: 100%; background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
-        <div id="loading-progress-bar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.3s ease;"></div>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arma 3 Map Demonstrator</title>
+  <link rel="stylesheet" href="./style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+
+<body>
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="hidden glass-panel">
+    <h3 style="margin: 0; color: #fff;">Loading 3D View</h3>
+    <div style="width: 100%; background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+      <div id="loading-progress-bar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.3s ease;">
       </div>
-      <p id="loading-text" style="font-size: 13px; margin: 0; color: #cbd5e1;">Preparing...</p>
     </div>
+    <p id="loading-text" style="font-size: 13px; margin: 0; color: #cbd5e1;">Preparing...</p>
+  </div>
 
-    <div id="app">
-      <header class="glass-header">
-        <h1>Arma 3 <span>3D Map Viewer</span></h1>
-        
-        <div class="map-selector">
-          <label for="map-select">Map: </label>
-          <select id="map-select" class="glass-btn">
-            <option value="">Loading maps...</option>
-          </select>
-        </div>
-        
-        <div class="mission-selector">
-          <label for="mission-select">Mission: </label>
-          <select id="mission-select" class="glass-btn">
-            <option value="">None</option>
-          </select>
-        </div>
+  <div id="app">
+    <header class="glass-header">
+      <h1>Arma 3 <span>3D Map Viewer</span></h1>
 
-        <p id="status-text">Connecting to server...</p>
-      </header>
+      <div class="map-selector">
+        <label for="map-select">Map: </label>
+        <select id="map-select" class="glass-btn">
+          <option value="">Loading maps...</option>
+        </select>
+      </div>
 
-      <!-- 2D Selection View -->
-      <main id="view-2d" class="view-container active">
-        <div class="canvas-wrapper glass-panel">
-          <canvas id="map-canvas"></canvas>
-          <div id="selection-box"></div>
-        </div>
-        <div class="instructions glass-panel">
-          <h2>Select a Region</h2>
-          <p>Click and drag on the heightmap to select an area to render in 3D.</p>
-          <button id="btn-render" disabled>Render 3D</button>
-        </div>
-      </main>
+      <div class="mission-selector">
+        <label for="mission-select">Mission: </label>
+        <select id="mission-select" class="glass-btn">
+          <option value="">None</option>
+        </select>
+      </div>
 
-      <!-- 3D Render View -->
-      <main id="view-3d" class="view-container hidden">
-        <div id="webgl-container"></div>
-        <div id="labels-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; z-index: 10;"></div>
-        <div class="overlay-controls">
-          <button id="btn-back" class="glass-btn">← Back to Map</button>
-          <button id="btn-fps" class="glass-btn" style="margin-left: 10px;">First Person (1.7m)</button>
-          
-          <div class="right-panels">
-            <div class="stats glass-panel">
-              <p>Objects: <span id="stat-objects">0</span></p>
-              <p>Area: <span id="stat-area">0</span> m²</p>
-            </div>
-            
-            <div class="filters glass-panel">
-              <h3>Layers</h3>
-              <label><input type="checkbox" id="filter-buildings" checked> <span class="color-box" style="background: #38bdf8;"></span> Buildings</label>
-              <label><input type="checkbox" id="filter-nature" checked> <span class="color-box" style="background: #22c55e;"></span> Trees & Bushes</label>
-              <label><input type="checkbox" id="filter-clutter" checked> <span class="color-box" style="background: #78716c;"></span> Rocks & Clutter</label>
-              <label><input type="checkbox" id="filter-roads" checked> <span class="color-box" style="background: #334155;"></span> Roads & Tracks</label>
-              <label><input type="checkbox" id="filter-structures" checked> <span class="color-box" style="background: #64748b;"></span> Structures (Walls)</label>
-              <label><input type="checkbox" id="filter-lamps" checked> <span class="color-box" style="background: #facc15;"></span> Lamps</label>
-              <label><input type="checkbox" id="filter-names" checked> <span class="color-box" style="background: #ffffff; border: 1px solid #ccc;"></span> Place Names</label>
-              <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0;">
-              <label><input type="checkbox" id="filter-models-only"> <span class="color-box" style="background: transparent; border: 1px dashed #ccc;"></span> Hide Bounding Boxes</label>
-              <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0;">
-              <label><input type="checkbox" id="filter-terrain-texture"> <span class="color-box" style="background: linear-gradient(45deg, #143CB4, #50b428, #b49678);"></span> Terrain Class Texture</label>
-            </div>
+      <p id="status-text">Connecting to server...</p>
+    </header>
+
+    <!-- 2D Selection View -->
+    <main id="view-2d" class="view-container active">
+      <div class="canvas-wrapper glass-panel">
+        <canvas id="map-canvas"></canvas>
+        <div id="selection-box"></div>
+      </div>
+      <div class="instructions glass-panel">
+        <h2>Select a Region</h2>
+        <p>Click and drag on the heightmap to select an area to render in 3D.</p>
+        <button id="btn-render" disabled>Render 3D</button>
+      </div>
+    </main>
+
+    <!-- 3D Render View -->
+    <main id="view-3d" class="view-container hidden">
+      <div id="webgl-container"></div>
+      <div id="labels-container"
+        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; z-index: 10;">
+      </div>
+      <div class="overlay-controls">
+        <button id="btn-back" class="glass-btn">← Back to Map</button>
+        <button id="btn-fps" class="glass-btn" style="margin-left: 10px;">First Person (1.7m)</button>
+
+        <div class="right-panels">
+          <div class="stats glass-panel">
+            <p>Objects: <span id="stat-objects">0</span></p>
+            <p>Area: <span id="stat-area">0</span> m²</p>
           </div>
 
-          <div id="object-info-panel" class="glass-panel hidden" style="position: absolute; bottom: 20px; left: 20px; min-width: 250px;">
-            <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 14px; color: #38bdf8;">Selected Object</h3>
-            <p style="margin: 4px 0; font-size: 13px;"><strong>Class:</strong> <span id="info-class">-</span></p>
-            <p style="margin: 4px 0; font-size: 13px;"><strong>Model:</strong> <span id="info-model">-</span></p>
+          <div class="filters glass-panel">
+            <h3>Layers</h3>
+            <label><input type="checkbox" id="filter-buildings" checked> <span class="color-box"
+                style="background: #38bdf8;"></span> Buildings</label>
+            <label><input type="checkbox" id="filter-nature" checked> <span class="color-box"
+                style="background: #22c55e;"></span> Trees & Bushes</label>
+            <label><input type="checkbox" id="filter-clutter" checked> <span class="color-box"
+                style="background: #78716c;"></span> Rocks & Clutter</label>
+            <label><input type="checkbox" id="filter-roads" checked> <span class="color-box"
+                style="background: #334155;"></span> Roads & Tracks</label>
+            <label><input type="checkbox" id="filter-structures" checked> <span class="color-box"
+                style="background: #64748b;"></span> Structures (Walls)</label>
+            <label><input type="checkbox" id="filter-lamps" checked> <span class="color-box"
+                style="background: #facc15;"></span> Lamps</label>
+            <label><input type="checkbox" id="filter-names" checked> <span class="color-box"
+                style="background: #ffffff;"></span> Place Names</label>
+            <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0;">
+            <label><input type="checkbox" id="filter-models-only"> <span class="color-box"
+                style="background: #ffffff;"></span> Hide Bounding Boxes</label>
+            <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0;">
+            <label><input type="checkbox" id="filter-terrain-texture"> <span class="color-box"
+                style="background: #ffffff;"></span> Terrain Class
+              Texture</label>
           </div>
         </div>
-      </main>
-    </div>
 
-    <!-- Import Map (We use ES modules for Vite) -->
-    <script type="importmap">
+        <div id="object-info-panel" class="glass-panel hidden"
+          style="position: absolute; bottom: 20px; left: 20px; min-width: 250px;">
+          <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 14px; color: #38bdf8;">Selected Object</h3>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Class:</strong> <span id="info-class">-</span></p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Model:</strong> <span id="info-model">-</span></p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Import Map (We use ES modules for Vite) -->
+  <script type="importmap">
       {
         "imports": {
           "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -100,6 +115,7 @@
         }
       }
     </script>
-    <script type="module" src="./main.js?v=3"></script>
-  </body>
+  <script type="module" src="./main.js?v=3"></script>
+</body>
+
 </html>

@@ -202,11 +202,11 @@ async function loadMap(mapName) {
       await new Promise((resolve, reject) => {
         terrainTextureImage.onload = resolve;
         terrainTextureImage.onerror = () => {
-          console.log("No terrain_class.png for " + mapName + ", falling back to solid colour.");
+          console.log("No geography.png for " + mapName + ", falling back to solid colour.");
           terrainTextureImage = null;
           resolve(); // don't reject, just skip
         };
-        terrainTextureImage.src = `map/${mapName}/terrain_class.png`;
+        terrainTextureImage.src = `map/${mapName}/geography.png`;
       });
     } catch (e) {
       terrainTextureImage = null;
@@ -1339,10 +1339,13 @@ async function render3D() {
     // Calculate objects intersecting the picking ray
     const intersects = raycaster.intersectObjects(allInstancedMeshes, false);
 
+    let validHit = false;
+
     if (intersects.length > 0) {
       // Find the first visible intersection
       const hit = intersects.find(i => i.object.visible);
       if (hit && hit.instanceId !== undefined) {
+        validHit = true;
         // Check if it's a mission entity
         if (hit.object.userData.isMissionEntity) {
           const missionData = hit.object.userData.missionObjects[hit.instanceId];
@@ -1364,7 +1367,9 @@ async function render3D() {
         dummy.matrix.decompose(highlightMesh.position, highlightMesh.quaternion, highlightMesh.scale);
         highlightMesh.visible = true;
       }
-    } else {
+    }
+    
+    if (!validHit) {
       document.getElementById('object-info-panel').classList.add('hidden');
       highlightMesh.visible = false;
     }

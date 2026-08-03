@@ -24,35 +24,44 @@ Immediately following the header, the file contains a sequential stream of seria
 ### 2.1. Elevation Data (Heightmap)
 - **Format**: LZO-compressed array of `Float32` values.
 - **Length**: `Heightmap Grid X * Heightmap Grid Y` (e.g., 16,777,216 floats for Altis).
-- **Description**: Represents the true elevation map of the terrain in meters relative to sea level. The data is stored as a continuous stream of floats.
+- **Description**: Represents the true elevation map of the terrain in meters relative to sea level. Extracted as `heightmap.bin`.
 
 ### 2.2. Material Index (Surface Mask)
 - **Format**: LZO-compressed array of `UInt16` values.
-- **Length**: `Material Grid X * Material Grid Y` (e.g., 1,048,576 unsigned integers for Altis).
-- **Description**: An index map that assigns a surface material to each grid cell. 
+- **Length**: `Material Grid X * Material Grid Y`
+- **Description**: An index map that assigns a surface material to each land grid cell. Extracted as `material_mask.bin`.
 
-### 2.3. Material String Table
+### 2.3. Primary Texture Index (PrimTexIndex)
+- **Format**: Array of `Byte` values.
+- **Length**: `Heightmap Grid X * Heightmap Grid Y`
+- **Description**: A higher-resolution byte array mapping each heightmap cell to a material index from the Material Names table. Extracted as `prim_tex.bin`.
+
+### 2.4. Material Names Table (MatNames)
 - **Format**: Uncompressed array of ASCII strings.
-- **Description**: A sequential list of file paths pointing to the `.rvmat` materials used by the Material Index (e.g., `a3\map_altis\data\gdt_dry_grass.rvmat`).
+- **Description**: A list of file paths pointing to the `.rvmat` materials. Extracted to `material_names.json`.
 
-### 2.4. Sound Map
-- **Format**: LZO-compressed array of `Byte` values.
-- **Description**: A spatial mapping used for generating localized ambient audio or footprint sounds based on the terrain.
+### 2.5. Geography
+- **Format**: Originally a quad-tree structure in the binary, flattened to a 2D grid of flags.
+- **Length**: `Material Grid X * Material Grid Y`
+- **Description**: Represents surface features (e.g., forest, road, water flags) at the land grid resolution. Extracted as `geography.bin`.
 
-### 2.5. Mountain Peaks
-- **Format**: Array of `Float32` coordinate pairs (`X`, `Z`).
-- **Description**: Coordinates marking significant terrain elevations or points of interest.
+### 2.6. Grass Approximation (GrassApprox)
+- **Format**: Array of `Byte` values.
+- **Length**: Typically matches Heightmap resolution.
+- **Description**: Represents grass coverage and density per cell. Extracted as `grass_approx.bin`.
 
-### 2.6. Models String Table
-- **Format**: Uncompressed array of ASCII strings.
-- **Description**: A global list of 3D model paths (e.g., `.p3d` files) utilized by the map's static objects.
+### 2.7. Persistent Map
+- **Format**: Array of `Byte` values.
+- **Length**: Typically matches Land Grid resolution.
+- **Description**: A byte map tracking persistent environmental or terrain states. Extracted as `persistent.bin`.
 
-### 2.7. Object Placement Table
+### 2.8. Object Placement Table
 - **Format**: Structured array of object definitions.
-- **Description**: Contains the placement data for every static object on the map (e.g., trees, rocks, buildings). Each entry includes:
-  - A reference to an index in the Models String Table.
-  - An object ID.
-  - A 4x3 or 4x4 transformation matrix used for rotation, scaling, and positioning.
+- **Description**: Contains the placement data for every static object on the map (e.g., trees, rocks, buildings). Each entry includes a model path and a transformation matrix. Extracted as `objects.json`.
+
+### 2.9. Road Network (Roadnet)
+- **Format**: Grid of cells containing arrays of road links.
+- **Description**: Defines the vector-based road network across the map, including connection points, types (main road, track, bridge), and linked `.p3d` models. Extracted as `roadnet.json`.
 
 #### Coordinate System & Rotation Matrix Details
 The transformation matrix for each object is a row-major 4x3 matrix containing rotational vectors and the translation vector (position).

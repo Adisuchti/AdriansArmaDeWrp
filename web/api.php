@@ -69,18 +69,86 @@ if ($action === 'objects_in_region') {
     // Output NDJSON directly
     header('Content-type: application/x-ndjson');
     
-    // Use unlimited memory for parsing large JSON files on XAMPP
-    ini_set('memory_limit', '-1');
-    
-    $data = json_decode(file_get_contents($objectsFile), true);
-    if (isset($data['objects']) && is_array($data['objects'])) {
-        foreach ($data['objects'] as $obj) {
-            if (isset($obj['x']) && isset($obj['y'])) {
-                if ($obj['x'] >= $minX && $obj['x'] <= $maxX && $obj['y'] >= $minY && $obj['y'] <= $maxY) {
-                    echo json_encode($obj, JSON_UNESCAPED_SLASHES) . "\n";
+    $handle = fopen($objectsFile, "r");
+    if ($handle) {
+        $buffer = "";
+        
+        // Find the start of the objects array
+        while (!feof($handle)) {
+            $chunk = fread($handle, 65536);
+            if ($chunk === false) break;
+            $buffer .= $chunk;
+            
+            $pos = strpos($buffer, '"objects"');
+            if ($pos !== false) {
+                $bracketPos = strpos($buffer, '[', $pos);
+                if ($bracketPos !== false) {
+                    $buffer = substr($buffer, $bracketPos + 1);
+                    break;
                 }
             }
+            // Failsafe to prevent unbounded memory growth if not found quickly
+            if (strlen($buffer) > 1024 * 1024) {
+                break;
+            }
         }
+        
+        // Now parse objects one by one
+        $braceCount = 0;
+        $objStr = "";
+        $inString = false;
+        $escape = false;
+        
+        while (!feof($handle) || $buffer !== "") {
+            if ($buffer === "" && !feof($handle)) {
+                $buffer = fread($handle, 65536);
+            }
+            
+            for ($i = 0; $i < strlen($buffer); $i++) {
+                $char = $buffer[$i];
+                
+                if ($braceCount > 0) {
+                    $objStr .= $char;
+                    
+                    if ($inString) {
+                        if ($escape) {
+                            $escape = false;
+                        } elseif ($char === '\\') {
+                            $escape = true;
+                        } elseif ($char === '"') {
+                            $inString = false;
+                        }
+                    } else {
+                        if ($char === '"') {
+                            $inString = true;
+                        } elseif ($char === '{') {
+                            $braceCount++;
+                        } elseif ($char === '}') {
+                            $braceCount--;
+                            if ($braceCount === 0) {
+                                $obj = json_decode($objStr, true);
+                                if ($obj && isset($obj['x']) && isset($obj['y'])) {
+                                    if ($obj['x'] >= $minX && $obj['x'] <= $maxX && $obj['y'] >= $minY && $obj['y'] <= $maxY) {
+                                        echo json_encode($obj, JSON_UNESCAPED_SLASHES) . "\n";
+                                        flush(); // Important to push NDJSON immediately
+                                    }
+                                }
+                                $objStr = "";
+                            }
+                        }
+                    }
+                } else {
+                    if ($char === '{') {
+                        $braceCount = 1;
+                        $objStr = "{";
+                    } elseif ($char === ']') {
+                        break 2;
+                    }
+                }
+            }
+            $buffer = ""; // consumed
+        }
+        fclose($handle);
     }
     exit;
 } elseif ($action === 'roads_in_region') {
