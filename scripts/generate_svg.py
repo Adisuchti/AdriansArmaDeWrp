@@ -4,6 +4,8 @@ import json
 import argparse
 import numpy as np
 from PIL import Image
+import base64
+from io import BytesIO
 
 # Ensure matplotlib runs headlessly
 import matplotlib
@@ -108,7 +110,32 @@ def write_svg_header(f, map_size):
     f.write('<g id="terrain">\n')
     f.write(f'<rect x="0" y="0" height="{map_size}" width="{map_size}" fill="url(#colorSea)"/>\n')
 
-def extract_and_write_contours(f, elevations, map_size, img_width, img_height, contour_interval=10, main_contour_interval=50):
+def generate_hillshade_base64(elevations, img_width, img_height, map_size):
+    print("Generating hillshade image for SVG...")
+    try:
+        from matplotlib.colors import LightSource
+        cell_size_x = map_size / img_width
+        cell_size_y = map_size / img_height
+        ls = LightSource(azdeg=180, altdeg=45)
+        shaded = ls.hillshade(elevations, vert_exag=1, dx=cell_size_x, dy=cell_size_y)
+        shaded_uint8 = (shaded * 255).clip(0, 255).astype(np.uint8)
+        
+        img = Image.fromarray(shaded_uint8, mode='L').convert('RGBA')
+        
+        # Make the hillshade a bit transparent or white-transparent so it blends nicely
+        # We'll just rely on SVG mix-blend-mode instead, so save as grayscale RGB
+        img = Image.fromarray(shaded_uint8, mode='L')
+        
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        img_str = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        return f"data:image/png;base64,{img_str}"
+    except Exception as e:
+        print(f"  (Failed to generate hillshade for SVG: {e})")
+        return None
+
+
+def extract_and_write_contours(f, elevations, map_size, img_width, img_height, contour_interval=10, main_contour_interval=50, enable_hillshade=False):
     print("Generating contours...")
     scale_x = map_size / img_width
     scale_y = map_size / img_height
@@ -116,10 +143,9 @@ def extract_and_write_contours(f, elevations, map_size, img_width, img_height, c
     min_elev = np.min(elevations)
     max_elev = np.max(elevations)
     
-    # 1. Landmass (Elevation 0)
-    # We use a slightly positive value to ensure it's above sea level
-    print("Extracting landmass (0m contour)...")
-    cs_land = plt.contour(elevations, levels=[0.0])
+    # 1. Landmass (Elevation >= 0)
+    print("Extracting landmass (>=0m contour)...")
+    cs_land = plt.contourf(elevations, levels=[0.0, max_elev + 100.0])
     
     paths = cs_land.get_paths()
     if paths:
@@ -137,6 +163,12 @@ def extract_and_write_contours(f, elevations, map_size, img_width, img_height, c
                     
                 pts_str = " ".join(pts)
                 f.write(f'<polygon class="land" points="{pts_str}" />\n')
+
+    if enable_hillshade:
+        b64_image = generate_hillshade_base64(elevations, img_width, img_height, map_size)
+        if b64_image:
+            # Insert hillshade with multiply blend mode so it shades land and sea
+            f.write(f'<image href="{b64_image}" x="0" y="0" width="{map_size}" height="{map_size}" style="mix-blend-mode: multiply; opacity: 0.6;" preserveAspectRatio="none" />\n')
             
     # 2. Elevation Contours
     # Create levels
@@ -341,6 +373,7 @@ def main():
     parser.add_argument("--interval", type=int, default=10, help="Contour interval in meters (default: 10)")
     parser.add_argument("--main-interval", type=int, default=50, help="Main contour interval in meters (default: 50)")
     parser.add_argument("--no-names", action="store_true", help="Skip rendering place names on the map")
+    parser.add_argument("--hillshade", action="store_true", help="Enable hillshade relief simulating sun from south")
     
     args = parser.parse_args()
     
@@ -386,7 +419,7 @@ def main():
         write_svg_header(f, map_size)
         
         # 1. Contours and Landmass
-        extract_and_write_contours(f, elevations, map_size, img_width, img_height, args.interval, args.main_interval)
+        extract_and_write_contours(f, elevations, map_size, img_width, img_height, args.interval, args.main_interval, args.hillshade)
         
         # 2. Roads
         roadnet_path = os.path.join(map_dir, "roadnet.json")

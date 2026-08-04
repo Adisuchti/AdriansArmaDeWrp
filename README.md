@@ -87,8 +87,9 @@ cd scripts
 Generates a highly detailed, 2D vector map (`.svg`) with contour lines (e.g. 10m intervals), roads, and landmass.
 ```bash
 cd scripts
-python generate_svg.py C:\Users\YourName\Documents\Arma3MapExports\Altis_WRP
+python generate_svg.py C:\Users\YourName\Documents\Arma3MapExports\Altis_WRP --hillshade
 ```
+*Tip: Use `--hillshade` to embed a shaded relief layer simulating sun from the south.*
 *Note: This script requires `numpy` and `matplotlib` to be installed.*
 
 ### 4. Generate Top-Down PNG Maps (Optional)
@@ -98,6 +99,7 @@ cd scripts
 python render_topdown.py C:\Users\YourName\Documents\Arma3MapExports\Altis_WRP --no-terrain --bg-color "#1e1e1e" --width 16384 --height 16384
 ```
 *Tip: Omit `--no-terrain` to automatically use `terrain_class.png` as the background if it was extracted.*
+*Tip: Use `--hillshade` to add a shaded relief simulating sun from the south.*
 
 ### 5. Start the Web Viewer
 ```bash

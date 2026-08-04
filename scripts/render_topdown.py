@@ -20,7 +20,7 @@ import os
 import sys
 import argparse
 import math
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageChops
 
 
 # ── Colours ─────────────────────────────────────────────────────────────────
@@ -135,6 +135,76 @@ def render_water(canvas, map_dir: str, meta: dict, img_w: int, img_h: int):
         
     canvas.paste(water_color_layer, mask=water_mask_img)
     return canvas
+
+
+def render_hillshade(canvas, map_dir: str, meta: dict, img_w: int, img_h: int):
+    """Render a hillshade relief simulation."""
+    heightmap_path = os.path.join(map_dir, "heightmap.png")
+    if not os.path.exists(heightmap_path):
+        print("  (no heightmap.png — skipping hillshade)")
+        return canvas
+
+    print(f"Rendering hillshade from {heightmap_path}...")
+    min_height = meta.get("minHeight", -200)
+    max_height = meta.get("maxHeight", 500)
+    map_size = meta.get("mapSize", 8192)
+
+    try:
+        import numpy as np
+    except ImportError:
+        print("  (numpy not installed — skipping hillshade)")
+        return canvas
+
+    img = Image.open(heightmap_path)
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    img_arr = np.array(img, dtype=np.float32)
+    r = img_arr[:, :, 0]
+    g = img_arr[:, :, 1]
+    b = img_arr[:, :, 2]
+
+    is_grayscale = np.all(r == g) and np.all(g == b)
+    if is_grayscale:
+        normalized = r / 255.0
+    else:
+        val_24 = (r * 65536.0) + (g * 256.0) + b
+        normalized = val_24 / 16777215.0
+
+    elevations = min_height + (normalized * (max_height - min_height))
+
+    cell_size_x = map_size / img.width
+    cell_size_y = map_size / img.height
+
+    try:
+        from matplotlib.colors import LightSource
+        # azimuth 180 (South) and altitude 45
+        ls = LightSource(azdeg=180, altdeg=45)
+        shaded = ls.hillshade(elevations, vert_exag=1, dx=cell_size_x, dy=cell_size_y)
+        shaded_uint8 = (shaded * 255).clip(0, 255).astype(np.uint8)
+    except ImportError:
+        print("  (matplotlib not installed — falling back to basic numpy hillshade)")
+        dy, dx = np.gradient(elevations)
+        dx = dx / cell_size_x
+        dy = dy / cell_size_y
+        slope = np.pi / 2.0 - np.arctan(np.sqrt(dx*dx + dy*dy))
+        aspect = np.arctan2(-dy, dx)
+        azimuth_rad = np.radians(180.0)
+        altitude_rad = np.radians(45.0)
+        shaded = np.sin(altitude_rad) * np.sin(slope) + \
+                 np.cos(altitude_rad) * np.cos(slope) * \
+                 np.cos((azimuth_rad - np.pi/2.0) - aspect)
+        shaded_uint8 = (255 * (shaded + 1) / 2).clip(0, 255).astype(np.uint8)
+
+    hillshade_img = Image.fromarray(shaded_uint8, mode='L').convert('RGB')
+    if hillshade_img.size != (img_w, img_h):
+        hillshade_img = hillshade_img.resize((img_w, img_h), Image.LANCZOS)
+    
+    if canvas.mode != "RGB":
+        canvas = canvas.convert("RGB")
+        
+    canvas_shaded = ImageChops.multiply(canvas, hillshade_img)
+    return canvas_shaded
 
 
 def render_objects(draw, objects_file: str, meta: dict, classification: dict,
@@ -369,6 +439,7 @@ def main():
                         help="Skip terrain_class.png background (solid colour instead)")
     parser.add_argument("--bg-color", type=str, default="#0f172a",
                         help="Background colour when --no-terrain is used (hex, default: #0f172a)")
+    parser.add_argument("--hillshade", action="store_true", help="Enable hillshade relief simulating sun from south")
     args = parser.parse_args()
 
     map_dir = os.path.abspath(args.map_dir)
@@ -411,6 +482,10 @@ def main():
     meta = load_meta(map_dir)
     if meta:
         print(f"Map size: {meta.get('mapSize', '?')}m")
+
+    # ── 2.25. Render hillshade ────────────────────────────────────────────
+    if args.hillshade:
+        canvas = render_hillshade(canvas, map_dir, meta, img_w, img_h)
 
     # ── 2.5. Render water ─────────────────────────────────────────────────
     canvas = render_water(canvas, map_dir, meta, img_w, img_h)

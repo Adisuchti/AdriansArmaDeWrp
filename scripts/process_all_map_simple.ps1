@@ -13,12 +13,17 @@ $ExportsDir = $config.exports_dir
 $WrpAnalyzerDir = Join-Path $PSScriptRoot "WrpAnalyzer"
 
 Set-Location $WrpAnalyzerDir
+$WorkshopDir = $config.workshop_dir
 
 Write-Host "=========================================================" -ForegroundColor Cyan
 Write-Host "  CALCULATING PHYSICAL DIMENSIONS FOR ALL EXPORTED MAPS  " -ForegroundColor Cyan
 Write-Host "=========================================================" -ForegroundColor Cyan
 
-dotnet run -c Release -- calc_all_dims "`"$Arma3Dir`"" "`"$ExportsDir`""
+if ($WorkshopDir) {
+    dotnet run -c Release -- calc_all_dims "`"$Arma3Dir`"" "`"$ExportsDir`"" "`"$WorkshopDir`""
+} else {
+    dotnet run -c Release -- calc_all_dims "`"$Arma3Dir`"" "`"$ExportsDir`""
+}
 
 Set-Location $PSScriptRoot
 Write-Host "`nAll dimension calculations complete!" -ForegroundColor Green

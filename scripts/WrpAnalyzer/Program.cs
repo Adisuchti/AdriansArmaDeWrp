@@ -47,17 +47,27 @@ namespace WrpAnalyzer
             {
                 VoxelizeMap(args[1], args[2], args[3]);
             }
-            else if (command == "calc_dims" && args.Length >= 4)
+            else if (command == "calc_dims")
             {
-                CalcDims(args[1], args[2], args[3]);
+                if (args.Length >= 5)
+                    CalcDims(args[1], args[2], args[3], args[4]);
+                else if (args.Length >= 4)
+                    CalcDims(args[1], args[2], args[3], null);
             }
-            else if (command == "calc_all_dims" && args.Length >= 3)
+            else if (command == "calc_all_dims")
             {
-                CalcAllDims(args[1], args[2]);
+                if (args.Length >= 4)
+                    CalcAllDims(args[1], args[2], args[3]);
+                else if (args.Length >= 3)
+                    CalcAllDims(args[1], args[2], null);
             }
             else if (command == "calc_models" && args.Length >= 4)
             {
                 CalcModels(args[1], args[2], args[3]);
+            }
+            else if (command == "debug_config" && args.Length >= 3)
+            {
+                DebugConfig(args[1], args[2]);
             }
             else
             {
@@ -75,12 +85,22 @@ namespace WrpAnalyzer
             Console.WriteLine("  WrpAnalyzer voxelize <arma3_dir> <exports_dir> <map_name>");
         }
 
-        static Dictionary<string, string> IndexPbos(string armaDir)
+        static Dictionary<string, string> IndexPbos(string armaDir, string workshopDir = null)
         {
             Console.WriteLine("Indexing PBOs for models (this may take a minute)...");
-            var pboFiles = Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories)
-                .Where(p => !p.Substring(armaDir.Length).Contains("!Workshop", StringComparison.OrdinalIgnoreCase))
-                .ToArray();
+            var pboFiles = new List<string>();
+            
+            if (!string.IsNullOrEmpty(armaDir) && Directory.Exists(armaDir))
+            {
+                pboFiles.AddRange(Directory.GetFiles(armaDir, "*.pbo", SearchOption.AllDirectories)
+                    .Where(p => !p.Substring(armaDir.Length).Contains("!Workshop", StringComparison.OrdinalIgnoreCase)));
+            }
+            
+            if (!string.IsNullOrEmpty(workshopDir) && Directory.Exists(workshopDir))
+            {
+                pboFiles.AddRange(Directory.GetFiles(workshopDir, "*.pbo", SearchOption.AllDirectories));
+            }
+            
             var p3dToPboMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             
             foreach (var pboPath in pboFiles)
@@ -476,98 +496,41 @@ namespace WrpAnalyzer
                                     
                                     // 5. Export Map Place Names from config.bin
                                     var configFile = pbo.Files.FirstOrDefault(f => f.FileName.Equals("config.bin", StringComparison.OrdinalIgnoreCase));
+                                    bool namesExported = false;
+                                    
                                     if (configFile != null)
                                     {
-                                        Console.WriteLine("Extracting place names from config.bin...");
                                         using (var cfgStream = configFile.OpenRead())
                                         {
+                                            namesExported = TryExtractNamesFromConfig(cfgStream, mapName, mapParsedDir, mapWebDir, stringTable);
+                                        }
+                                    }
+                                    
+                                    if (!namesExported)
+                                    {
+                                        string pboDir = Path.GetDirectoryName(pboPath);
+                                        string baseName = Path.GetFileNameWithoutExtension(pboPath);
+                                        string configPboPath = Path.Combine(pboDir, baseName + "_c.pbo");
+                                        if (!File.Exists(configPboPath)) configPboPath = Path.Combine(pboDir, baseName + "_config.pbo");
+                                        
+                                        if (File.Exists(configPboPath))
+                                        {
+                                            Console.WriteLine($"Checking {Path.GetFileName(configPboPath)} for place names...");
                                             try
                                             {
-                                                var paramFile = new BIS.Core.Config.ParamFile(cfgStream);
-                                                var cfgWorlds = paramFile.Root.Entries.FirstOrDefault(e => e.Name.Equals("CfgWorlds", StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
-                                                if (cfgWorlds != null)
+                                                using (var configPbo = new PBO(configPboPath))
                                                 {
-                                                    var worldCfg = cfgWorlds.Entries.FirstOrDefault(e => e.Name.Equals(mapName, StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
-                                                    if (worldCfg != null)
+                                                    var fallbackConfigFile = configPbo.Files.FirstOrDefault(f => f.FileName.Equals("config.bin", StringComparison.OrdinalIgnoreCase));
+                                                    if (fallbackConfigFile != null)
                                                     {
-                                                        var names = worldCfg.Entries.FirstOrDefault(e => e.Name.Equals("Names", StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
-                                                        if (names != null)
+                                                        using (var fallbackStream = fallbackConfigFile.OpenRead())
                                                         {
-                                                            string namesJsonPath = Path.Combine(mapParsedDir, "names.json");
-                                                            var namesList = new List<object>();
-                                                            
-                                                            foreach (var entry in names.Entries)
-                                                            {
-                                                                if (entry is BIS.Core.Config.ParamClass nameClass)
-                                                                {
-                                                                    string locName = "";
-                                                                    string locType = "";
-                                                                    float posX = 0;
-                                                                    float posY = 0;
-                                                                    float radiusA = 0;
-                                                                    float radiusB = 0;
-                                                                    
-                                                                    foreach (var prop in nameClass.Entries)
-                                                                    {
-                                                                        if (prop is BIS.Core.Config.ParamValue pv)
-                                                                        {
-                                                                            if (prop.Name.Equals("name", StringComparison.OrdinalIgnoreCase)) locName = pv.Get<string>();
-                                                                            else if (prop.Name.Equals("type", StringComparison.OrdinalIgnoreCase)) locType = pv.Get<string>();
-                                                                            else if (prop.Name.Equals("radiusA", StringComparison.OrdinalIgnoreCase)) radiusA = pv.Get<float>();
-                                                                            else if (prop.Name.Equals("radiusB", StringComparison.OrdinalIgnoreCase)) radiusB = pv.Get<float>();
-                                                                        }
-                                                                        else if (prop is BIS.Core.Config.ParamArray pa && prop.Name.Equals("position", StringComparison.OrdinalIgnoreCase))
-                                                                        {
-                                                                            if (pa.Array.Entries.Count >= 2)
-                                                                            {
-                                                                                posX = pa.Array.Entries[0].Get<float>();
-                                                                                posY = pa.Array.Entries[1].Get<float>();
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                    
-                                                                    // Normalize stringtable name
-                                                                    if (!string.IsNullOrEmpty(locName) && locName.StartsWith("$STR_"))
-                                                                    {
-                                                                        // Remove $ at the start if present
-                                                                        string lookupKey = locName.StartsWith("$") ? locName.Substring(1) : locName;
-                                                                        if (stringTable.TryGetValue(lookupKey, out string translated))
-                                                                        {
-                                                                            locName = translated;
-                                                                        }
-                                                                        else
-                                                                        {
-                                                                            // Fallback smart cleaner
-                                                                            locName = lookupKey;
-                                                                            if (locName.StartsWith("STR_A3_")) locName = locName.Substring(7);
-                                                                            if (locName.EndsWith("0")) locName = locName.Substring(0, locName.Length - 1);
-                                                                        }
-                                                                    }
-                                                                    
-                                                                    namesList.Add(new {
-                                                                        id = nameClass.Name,
-                                                                        name = locName,
-                                                                        type = locType,
-                                                                        x = posX,
-                                                                        y = posY,
-                                                                        radiusA = radiusA,
-                                                                        radiusB = radiusB
-                                                                    });
-                                                                }
-                                                            }
-                                                            
-                                                            string namesJson = JsonConvert.SerializeObject(namesList, Formatting.Indented);
-                                                            File.WriteAllText(namesJsonPath, namesJson);
-                                                            File.Copy(namesJsonPath, Path.Combine(mapWebDir, "names.json"), true);
-                                                            Console.WriteLine($"Exported {namesList.Count} place names to names.json.");
+                                                            TryExtractNamesFromConfig(fallbackStream, mapName, mapParsedDir, mapWebDir, stringTable);
                                                         }
                                                     }
                                                 }
                                             }
-                                            catch (Exception ex)
-                                            {
-                                                Console.WriteLine($"Warning: Failed to parse config.bin for names: {ex.Message}");
-                                            }
+                                            catch { }
                                         }
                                     }
                                     
@@ -641,7 +604,130 @@ namespace WrpAnalyzer
             Console.WriteLine("\nAll Maps Processed!");
         }
 
-        static void CalcDims(string armaDir, string baseWebDir, string mapName)
+        static bool TryExtractNamesFromConfig(Stream cfgStream, string mapName, string mapParsedDir, string mapWebDir, Dictionary<string, string> stringTable)
+        {
+            if (cfgStream == null) return false;
+            
+            try
+            {
+                var paramFile = new BIS.Core.Config.ParamFile(cfgStream);
+                    var cfgWorlds = paramFile.Root.Entries.FirstOrDefault(e => e.Name.Equals("CfgWorlds", StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
+                    if (cfgWorlds != null)
+                    {
+                        var worldCfg = cfgWorlds.Entries.FirstOrDefault(e => e.Name.Equals(mapName, StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
+                        if (worldCfg != null)
+                        {
+                            var names = worldCfg.Entries.FirstOrDefault(e => e.Name.Equals("Names", StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
+                            if (names != null && names.Entries.Count > 0)
+                            {
+                                Console.WriteLine("Extracting place names from config.bin...");
+                                string namesJsonPath = Path.Combine(mapParsedDir, "names.json");
+                                var namesList = new List<object>();
+                                
+                                foreach (var entry in names.Entries)
+                                {
+                                    if (entry is BIS.Core.Config.ParamClass nameClass)
+                                    {
+                                        string locName = "";
+                                        string locType = "";
+                                        float posX = 0;
+                                        float posY = 0;
+                                        float radiusA = 0;
+                                        float radiusB = 0;
+                                        
+                                        foreach (var prop in nameClass.Entries)
+                                        {
+                                            if (prop is BIS.Core.Config.ParamValue pv)
+                                            {
+                                                if (prop.Name.Equals("name", StringComparison.OrdinalIgnoreCase)) locName = pv.Get<string>();
+                                                else if (prop.Name.Equals("type", StringComparison.OrdinalIgnoreCase)) locType = pv.Get<string>();
+                                                else if (prop.Name.Equals("radiusA", StringComparison.OrdinalIgnoreCase)) radiusA = pv.Get<float>();
+                                                else if (prop.Name.Equals("radiusB", StringComparison.OrdinalIgnoreCase)) radiusB = pv.Get<float>();
+                                            }
+                                            else if (prop is BIS.Core.Config.ParamArray pa && prop.Name.Equals("position", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                if (pa.Array.Entries.Count >= 2)
+                                                {
+                                                    posX = pa.Array.Entries[0].Get<float>();
+                                                    posY = pa.Array.Entries[1].Get<float>();
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Normalize stringtable name
+                                        if (!string.IsNullOrEmpty(locName) && locName.StartsWith("$STR_"))
+                                        {
+                                            string lookupKey = locName.StartsWith("$") ? locName.Substring(1) : locName;
+                                            if (stringTable.TryGetValue(lookupKey, out string translated))
+                                            {
+                                                locName = translated;
+                                            }
+                                            else
+                                            {
+                                                locName = lookupKey;
+                                                if (locName.StartsWith("STR_A3_")) locName = locName.Substring(7);
+                                                if (locName.EndsWith("0")) locName = locName.Substring(0, locName.Length - 1);
+                                            }
+                                        }
+                                        
+                                        namesList.Add(new {
+                                            id = nameClass.Name,
+                                            name = locName,
+                                            type = locType,
+                                            x = posX,
+                                            y = posY,
+                                            radiusA = radiusA,
+                                            radiusB = radiusB
+                                        });
+                                    }
+                                }
+                                
+                                string namesJson = JsonConvert.SerializeObject(namesList, Formatting.Indented);
+                                File.WriteAllText(namesJsonPath, namesJson);
+                                File.Copy(namesJsonPath, Path.Combine(mapWebDir, "names.json"), true);
+                                Console.WriteLine($"Exported {namesList.Count} place names to names.json.");
+                                return true;
+                            }
+                        }
+                    }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Failed to parse config.bin for names: {ex.Message}");
+            }
+            
+            return false;
+        }
+
+        static void DebugConfig(string pboPath, string mapName)
+        {
+            using (var pbo = new PBO(pboPath))
+            {
+                var configFile = pbo.Files.FirstOrDefault(f => f.FileName.Equals("config.bin", StringComparison.OrdinalIgnoreCase));
+                if (configFile != null)
+                {
+                    using (var cfgStream = configFile.OpenRead())
+                    {
+                        var paramFile = new BIS.Core.Config.ParamFile(cfgStream);
+                        var cfgWorlds = paramFile.Root.Entries.FirstOrDefault(e => e.Name.Equals("CfgWorlds", StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
+                        if (cfgWorlds != null)
+                        {
+                            var worldCfg = cfgWorlds.Entries.FirstOrDefault(e => e.Name.Equals(mapName, StringComparison.OrdinalIgnoreCase)) as BIS.Core.Config.ParamClass;
+                            if (worldCfg != null)
+                            {
+                                Console.WriteLine($"Entries in CfgWorlds\\{mapName}:");
+                                foreach(var entry in worldCfg.Entries)
+                                {
+                                    Console.WriteLine($"- {entry.Name} ({entry.GetType().Name})");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        static void CalcDims(string armaDir, string baseWebDir, string mapName, string workshopDir = null)
         {
             string mapWebDir = Path.Combine(baseWebDir, mapName + "_WRP");
             string objectsJsonPath = Path.Combine(mapWebDir, "objects.json");
@@ -653,18 +739,27 @@ namespace WrpAnalyzer
             }
 
             Console.WriteLine("Parsing objects.json...");
-            string jsonText = File.ReadAllText(objectsJsonPath);
-            JsonNode rootNode = JsonNode.Parse(jsonText);
-            JsonArray objectsArray = rootNode["objects"].AsArray();
-
             var neededModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var obj in objectsArray)
+            long totalObjectsFound = 0;
+            using (var sr = new StreamReader(objectsJsonPath))
+            using (var reader = new JsonTextReader(sr))
             {
-                neededModels.Add(obj["model"].ToString());
+                while (reader.Read())
+                {
+                    if (reader.TokenType == JsonToken.PropertyName && (string)reader.Value == "model")
+                    {
+                        reader.Read();
+                        if (reader.TokenType == JsonToken.String)
+                        {
+                            neededModels.Add((string)reader.Value);
+                            totalObjectsFound++;
+                        }
+                    }
+                }
             }
-            Console.WriteLine($"Found {neededModels.Count} unique models on {mapName}.");
+            Console.WriteLine($"Found {neededModels.Count} unique models on {mapName} (Total objects: {totalObjectsFound}).");
 
-            var p3dToPboMap = IndexPbos(armaDir);
+            var p3dToPboMap = IndexPbos(armaDir, workshopDir);
             var modelDimensions = new Dictionary<string, (float w, float l, float h, float minX, float minY, float minZ, float maxX, float maxY, float maxZ)>(StringComparer.OrdinalIgnoreCase);
 
             int processed = 0;
@@ -735,33 +830,93 @@ namespace WrpAnalyzer
                 if (processed % 100 == 0) Console.WriteLine($"Processed {processed}/{neededModels.Count} models...");
             }
 
-            Console.WriteLine($"Updating objects.json with precise vertice dimensions ({objectsArray.Count} objects)...");
-            int objCounter = 0;
-            foreach (var obj in objectsArray)
+            Console.WriteLine($"Updating objects.json with precise vertice dimensions...");
+            string tempFile = objectsJsonPath + ".tmp";
+            using (var sr = new StreamReader(objectsJsonPath))
+            using (var reader = new JsonTextReader(sr))
+            using (var sw = new StreamWriter(tempFile))
+            using (var writer = new JsonTextWriter(sw))
             {
-                string model = obj["model"].ToString();
-                if (modelDimensions.TryGetValue(model, out var dims))
-                {
-                    obj["w"] = dims.w;
-                    obj["l"] = dims.l;
-                    obj["h"] = dims.h;
-                    obj["bminX"] = dims.minX;
-                    obj["bminY"] = dims.minY;
-                    obj["bminZ"] = dims.minZ;
-                    obj["bmaxX"] = dims.maxX;
-                    obj["bmaxY"] = dims.maxY;
-                    obj["bmaxZ"] = dims.maxZ;
-                }
+                writer.Formatting = Formatting.None; // Minify
                 
-                objCounter++;
-                if (objCounter % 10000 == 0) Console.WriteLine($"  Applied dimensions to {objCounter}/{objectsArray.Count} objects...");
+                int objCounter = 0;
+                string currentModel = null;
+                
+                while (reader.Read())
+                {
+                    if (reader.TokenType == JsonToken.PropertyName)
+                    {
+                        string propName = (string)reader.Value;
+                        if (propName == "model")
+                        {
+                            writer.WritePropertyName(propName);
+                            reader.Read();
+                            currentModel = (string)reader.Value;
+                            writer.WriteValue(currentModel);
+                        }
+                        else if (propName == "w" || propName == "l" || propName == "h" || propName == "bminX" || propName == "bminY" || propName == "bminZ" || propName == "bmaxX" || propName == "bmaxY" || propName == "bmaxZ")
+                        {
+                            writer.WritePropertyName(propName);
+                            reader.Read(); // Consume the old value
+                            
+                            if (modelDimensions.TryGetValue(currentModel ?? "", out var dims))
+                            {
+                                if (propName == "w") writer.WriteValue(dims.w);
+                                else if (propName == "l") writer.WriteValue(dims.l);
+                                else if (propName == "h") writer.WriteValue(dims.h);
+                                else if (propName == "bminX") writer.WriteValue(dims.minX);
+                                else if (propName == "bminY") writer.WriteValue(dims.minY);
+                                else if (propName == "bminZ") writer.WriteValue(dims.minZ);
+                                else if (propName == "bmaxX") writer.WriteValue(dims.maxX);
+                                else if (propName == "bmaxY") writer.WriteValue(dims.maxY);
+                                else if (propName == "bmaxZ") writer.WriteValue(dims.maxZ);
+                            }
+                            else
+                            {
+                                if (propName == "w" || propName == "l" || propName == "h") writer.WriteValue(1.0);
+                                else if (propName.StartsWith("bmin")) writer.WriteValue(-0.5);
+                                else writer.WriteValue(0.5);
+                            }
+                        }
+                        else
+                        {
+                            writer.WritePropertyName(propName);
+                        }
+                    }
+                    else if (reader.TokenType == JsonToken.Float)
+                    {
+                        double val = (double)reader.Value;
+                        if (double.IsInfinity(val) || double.IsNaN(val))
+                        {
+                            writer.WriteValue(0.0);
+                        }
+                        else
+                        {
+                            writer.WriteValue(val);
+                        }
+                    }
+                    else if (reader.TokenType == JsonToken.StartObject)
+                    {
+                        currentModel = null;
+                        writer.WriteStartObject();
+                    }
+                    else if (reader.TokenType == JsonToken.EndObject)
+                    {
+                        writer.WriteEndObject();
+                        objCounter++;
+                        if (objCounter % 100000 == 0) Console.WriteLine($"  Applied dimensions to {objCounter} objects...");
+                    }
+                    else
+                    {
+                        writer.WriteToken(reader, false);
+                    }
+                }
             }
-
-            File.WriteAllText(objectsJsonPath, rootNode.ToJsonString(new JsonSerializerOptions { WriteIndented = false }));
+            File.Move(tempFile, objectsJsonPath, true);
             Console.WriteLine($"\nDimension calculation complete! Perfectly sized bounding boxes are ready for {mapName}.");
         }
 
-        static void CalcAllDims(string armaDir, string baseWebDir)
+        static void CalcAllDims(string armaDir, string baseWebDir, string workshopDir = null)
         {
             var objectsFiles = Directory.GetFiles(baseWebDir, "objects.json", SearchOption.AllDirectories);
             if (objectsFiles.Length == 0)
@@ -782,23 +937,18 @@ namespace WrpAnalyzer
                 Console.WriteLine($"  Scanning {Path.GetFileName(Path.GetDirectoryName(file))} ({totalProcessedFiles}/{objectsFiles.Length})...");
                 
                 using (var sr = new StreamReader(file))
+                using (var reader = new JsonTextReader(sr))
                 {
-                    string line;
-                    while ((line = sr.ReadLine()) != null)
+                    while (reader.Read())
                     {
-                        int pos = 0;
-                        while ((pos = line.IndexOf("\"model\":", pos, StringComparison.Ordinal)) != -1)
+                        if (reader.TokenType == JsonToken.PropertyName && (string)reader.Value == "model")
                         {
-                            pos += 8;
-                            while (pos < line.Length && (line[pos] == ' ' || line[pos] == '"')) pos++;
-                            int end = line.IndexOf("\"", pos, StringComparison.Ordinal);
-                            if (end > pos) {
-                                string model = line.Substring(pos, end - pos);
-                                neededModels.Add(model);
+                            reader.Read();
+                            if (reader.TokenType == JsonToken.String)
+                            {
+                                neededModels.Add((string)reader.Value);
                                 totalObjectsFound++;
                             }
-                            pos = end;
-                            if (pos <= 0) break;
                         }
                     }
                 }
@@ -807,7 +957,7 @@ namespace WrpAnalyzer
             }
             Console.WriteLine($"Found {neededModels.Count} unique models globally.");
 
-            var p3dToPboMap = IndexPbos(armaDir);
+            var p3dToPboMap = IndexPbos(armaDir, workshopDir);
             var modelDimensions = new Dictionary<string, (float w, float l, float h, float minX, float minY, float minZ, float maxX, float maxY, float maxZ)>(StringComparer.OrdinalIgnoreCase);
 
             int processed = 0;

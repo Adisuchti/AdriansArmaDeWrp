@@ -413,11 +413,14 @@ async function render3D() {
   threeControls.maxPolarAngle = Math.PI / 2 - 0.05; // Don't go below ground
 
   // Lighting
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+  // Reduced ambient light slightly to make directional shadows more pronounced
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.25);
   threeScene.add(ambientLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffedd5, 1.5);
-  dirLight.position.set(1000, 2000, 1000);
+  // Simulate sun coming from the South (positive Z) at a lower angle to highlight hillside relief
+  const dirLight = new THREE.DirectionalLight(0xffedd5, 1.8);
+  const sunDistance = Math.max(selMetersWidth, selMetersHeight) * 1.5;
+  dirLight.position.set(sunDistance * 0.2, sunDistance * 0.4, sunDistance);
   dirLight.castShadow = true;
   dirLight.shadow.mapSize.width = 2048;
   dirLight.shadow.mapSize.height = 2048;
@@ -911,8 +914,33 @@ async function render3D() {
         const roadGeosByType = { track: [], road: [], mainRoad: [] };
 
         regionRoads.forEach(road => {
-          const pts = road.pts;
-          if (!pts || pts.length < 2) return;
+          const rawPts = road.pts;
+          if (!rawPts || rawPts.length < 2) return;
+
+          // Subdivide long segments so we measure terrain height more often
+          const pts = [];
+          const maxSegLen = 4.0; // Subdivide every 4 meters
+          for (let i = 0; i < rawPts.length - 1; i++) {
+            const p1 = rawPts[i];
+            const p2 = rawPts[i+1];
+            pts.push(p1);
+
+            const dx = p2[0] - p1[0];
+            const dy = p2[1] - p1[1];
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > maxSegLen) {
+              const numSteps = Math.ceil(dist / maxSegLen);
+              for (let step = 1; step < numSteps; step++) {
+                const t = step / numSteps;
+                pts.push([
+                  p1[0] + dx * t,
+                  p1[1] + dy * t
+                ]);
+              }
+            }
+          }
+          pts.push(rawPts[rawPts.length - 1]);
 
           const roadType = road.type || 'road';
           const roadWidth = (road.width && road.width > 0.5) ? road.width : 10.0;
@@ -943,53 +971,72 @@ async function render3D() {
              }
 
              const segLen = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
-             const perpX = (-dirY / segLen) * (roadWidth / 2);
-             const perpY = (dirX / segLen) * (roadWidth / 2);
 
-             // Sample terrain at left and right edges so the road tilts with cross-slope
-             const leftArmaX  = armaX + perpX;
-             const leftArmaY  = armaY + perpY;
-             const rightArmaX = armaX - perpX;
-             const rightArmaY = armaY - perpY;
+             // Instead of just left and right, we sample across the road width 
+             // to allow it to conform to bumps in the middle of the road.
+             const numCrossVerts = 5; // Left, MidLeft, Center, MidRight, Right
 
-             const terrainHLeft  = getTerrainHeightAt(leftArmaX, leftArmaY);
-             const terrainHRight = getTerrainHeightAt(rightArmaX, rightArmaY);
-
-             // Top vertices (road surface) — each edge at its own sampled height
-             const tLeftX = leftArmaX - armaCenterX;
-             const tLeftY = armaCenterY - leftArmaY;
-             verts.push(tLeftX, terrainHLeft + heightOffset, tLeftY);
-             uvs.push(0, i / (pts.length - 1));
-
-             const tRightX = rightArmaX - armaCenterX;
-             const tRightY = armaCenterY - rightArmaY;
-             verts.push(tRightX, terrainHRight + heightOffset, tRightY);
-             uvs.push(1, i / (pts.length - 1));
+             // Top vertices
+             for (let j = 0; j < numCrossVerts; j++) {
+               // j=0 -> +roadWidth/2 (Left), j=numCrossVerts-1 -> -roadWidth/2 (Right)
+               const factor = 1.0 - (j / (numCrossVerts - 1)) * 2.0; 
+               const perpX = (-dirY / segLen) * (roadWidth / 2) * factor;
+               const perpY = (dirX / segLen) * (roadWidth / 2) * factor;
+               
+               const pX = armaX + perpX;
+               const pY = armaY + perpY;
+               const tH = getTerrainHeightAt(pX, pY);
+               
+               verts.push(pX - armaCenterX, tH + heightOffset, armaCenterY - pY);
+               uvs.push(j / (numCrossVerts - 1), i / (pts.length - 1));
+             }
 
              // Bottom vertices (below road surface for thickness)
-             verts.push(tLeftX, terrainHLeft + heightOffset - roadThickness, tLeftY);
-             uvs.push(0, i / (pts.length - 1));
-
-             verts.push(tRightX, terrainHRight + heightOffset - roadThickness, tRightY);
-             uvs.push(1, i / (pts.length - 1));
+             for (let j = 0; j < numCrossVerts; j++) {
+               const factor = 1.0 - (j / (numCrossVerts - 1)) * 2.0; 
+               const perpX = (-dirY / segLen) * (roadWidth / 2) * factor;
+               const perpY = (dirX / segLen) * (roadWidth / 2) * factor;
+               
+               const pX = armaX + perpX;
+               const pY = armaY + perpY;
+               const tH = getTerrainHeightAt(pX, pY);
+               
+               verts.push(pX - armaCenterX, tH + heightOffset - roadThickness, armaCenterY - pY);
+               uvs.push(j / (numCrossVerts - 1), i / (pts.length - 1));
+             }
            }
 
-          // Build indices for quads along the strip (each step = 4 vertices)
+          // Build indices for quads along the strip
           const numPts = pts.length;
+          const numCrossVerts = 5;
+          const vertsPerStep = numCrossVerts * 2;
+          
           for (let i = 0; i < numPts - 1; i++) {
-            const base = i * 4;
-            // Top face (two triangles)
-            indices.push(base, base + 1, base + 4);
-            indices.push(base + 1, base + 5, base + 4);
-            // Bottom face
-            indices.push(base + 2, base + 6, base + 3);
-            indices.push(base + 3, base + 6, base + 7);
-            // Left side
-            indices.push(base, base + 4, base + 2);
-            indices.push(base + 2, base + 4, base + 6);
-            // Right side
-            indices.push(base + 1, base + 3, base + 5);
-            indices.push(base + 3, base + 7, base + 5);
+            const base = i * vertsPerStep;
+            const nextBase = (i + 1) * vertsPerStep;
+
+            // Top faces (multiple quads across the road)
+            for (let j = 0; j < numCrossVerts - 1; j++) {
+              indices.push(base + j, base + j + 1, nextBase + j);
+              indices.push(base + j + 1, nextBase + j + 1, nextBase + j);
+            }
+            
+            // Bottom faces
+            const botBase = base + numCrossVerts;
+            const nextBotBase = nextBase + numCrossVerts;
+            for (let j = 0; j < numCrossVerts - 1; j++) {
+              indices.push(botBase + j, nextBotBase + j, botBase + j + 1);
+              indices.push(botBase + j + 1, nextBotBase + j, nextBotBase + j + 1);
+            }
+
+            // Left side wall (connects top-left to bot-left)
+            indices.push(base + 0, nextBase + 0, botBase + 0);
+            indices.push(botBase + 0, nextBase + 0, nextBotBase + 0);
+
+            // Right side wall (connects top-right to bot-right)
+            const rIdx = numCrossVerts - 1;
+            indices.push(base + rIdx, botBase + rIdx, nextBase + rIdx);
+            indices.push(botBase + rIdx, nextBotBase + rIdx, nextBase + rIdx);
           }
 
           const geo = new THREE.BufferGeometry();
